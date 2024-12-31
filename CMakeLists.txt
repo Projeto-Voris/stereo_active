@@ -20,6 +20,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
+find_package(message_filters REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 # Manually specify the path to libnoise
@@ -34,13 +35,18 @@ include_directories(include ${LIBNOISE_INCLUDE_DIRS})
 # add_executable(dc_pub src/dc_publisher.cpp)
 # ament_target_dependencies(dc_pub rclcpp std_msgs)  
 
-add_executable(noise_image src/noise_image.cpp)
+add_executable(noise_image src/image/noise_image.cpp)
 target_link_libraries(noise_image ${OpenCV_LIBS} ${LIBNOISE_LIBRARIES} X11 Xinerama OpenMP::OpenMP_CXX)
 ament_target_dependencies(noise_image rclcpp std_msgs std_srvs)  
+
+add_executable(stereo_acq src/image/stereo_acquisition.cpp)
+target_link_libraries(stereo_acq ${OpenCV_LIBS})
+ament_target_dependencies(stereo_acq rclcpp sensor_msgs cv_bridge message_filters std_srvs)  
 
 install(TARGETS 
         # dc_motor 
         # dc_pub
+        stereo_acq
         noise_image
   DESTINATION lib/${PROJECT_NAME})
 

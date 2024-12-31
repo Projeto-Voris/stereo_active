@@ -11,6 +11,11 @@ def generate_launch_description():
             description='Namespace for node'
         ),
         DeclareLaunchArgument(
+            'service_topic',
+            default_value='pattern_change',
+            description='Namespace for node'
+        ),
+        DeclareLaunchArgument(
             'monitor_name',
             default_value='Monitor_1',
             description='Monitor output port'
@@ -49,7 +54,7 @@ def generate_launch_description():
                 {'monitor_name': LaunchConfiguration('monitor_name')}
             ],
             remappings=[
-                # Add any topic remappings here if needed
+                ('pattern_change', LaunchConfiguration('service_topic'))
             ]
         ),
     ])
