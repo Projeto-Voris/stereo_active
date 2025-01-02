@@ -1,6 +1,7 @@
 #include <stereo_acquisition.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/set_bool.hpp>
+#include <sensor_msgs/msg/image.hpp>
 
 StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size_(10), capture_images_(false) {
     
@@ -21,6 +22,10 @@ StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size
                 std::bind(&StereoAcquisition::service_see_cb, this, std::placeholders::_1, std::placeholders::_2));
 
     noise_image_client_ = this->create_client<std_srvs::srv::SetBool>("pattern_change");
+
+
+    left_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("left_image_buffer", 10);
+    right_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("right_image_buffer", 10);
 
     // timer_ = this->create_wall_timer(
         // std::chrono::milliseconds(50), std::bind(&StereoAcquisition::check_noise_image_service, this));
@@ -61,8 +66,15 @@ void StereoAcquisition::images_cb(const sensor_msgs::msg::Image::ConstSharedPtr 
     if (image_buffer_.size() >= buffer_size_  && capture_images_) {
         capture_images_ = false;
         RCLCPP_INFO(this->get_logger(), "Buffer is full. Stopping image capture.");
-        return;
+        // Publish the images in the buffer
+        for (const auto &image_pair : image_buffer_) {
+            sensor_msgs::msg::Image::SharedPtr left_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image_pair.first).toImageMsg();
+            sensor_msgs::msg::Image::SharedPtr right_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image_pair.second).toImageMsg();
+            left_image_pub_->publish(*left_msg);
+            right_image_pub_->publish(*right_msg);
+            }
     }
+
 
     // cv::imshow("Left Image", left_image);
     // cv::imshow("Right Image", right_image);

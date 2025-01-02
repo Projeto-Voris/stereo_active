@@ -43,6 +43,9 @@ private:
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr see_images_service_;
     rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr noise_image_client_;
     rclcpp::TimerBase::SharedPtr timer_;
+    
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr left_image_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr right_image_pub_;
 };
 
 #endif // STEREO_ACQUISITION_HPP

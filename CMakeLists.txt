@@ -43,11 +43,17 @@ add_executable(stereo_acq src/image/stereo_acquisition.cpp)
 target_link_libraries(stereo_acq ${OpenCV_LIBS})
 ament_target_dependencies(stereo_acq rclcpp sensor_msgs cv_bridge message_filters std_srvs)  
 
+add_executable(stereo_image_subscriber src/image/stereo_image_subscriber.cpp)
+target_link_libraries(stereo_image_subscriber ${OpenCV_LIBS})
+ament_target_dependencies(stereo_image_subscriber rclcpp sensor_msgs cv_bridge)
+
+
 install(TARGETS 
         # dc_motor 
         # dc_pub
         stereo_acq
         noise_image
+        stereo_image_subscriber
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY
