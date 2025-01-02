@@ -17,6 +17,9 @@ StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size
     get_images_service_ = this->create_service<std_srvs::srv::Trigger>("capture_images", 
                 std::bind(&StereoAcquisition::service_cb, this, std::placeholders::_1, std::placeholders::_2));
 
+    see_images_service_ = this->create_service<std_srvs::srv::Trigger>("show_images", 
+                std::bind(&StereoAcquisition::service_see_cb, this, std::placeholders::_1, std::placeholders::_2));
+
     noise_image_client_ = this->create_client<std_srvs::srv::SetBool>("pattern_change");
 
     // timer_ = this->create_wall_timer(
@@ -43,17 +46,16 @@ void StereoAcquisition::images_cb(const sensor_msgs::msg::Image::ConstSharedPtr 
     cv::Mat right_image = cv_ptrRight->image;
 
     if (capture_images_) {
+        image_buffer_.emplace_back(left_image, right_image);
         auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
         request->data = true;
-        noise_image_client_->async_send_request(request, [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture future) {
-            if (future.get()->success) {
+        noise_image_client_->async_send_request(request, [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture result) {
+            if (result.get()->success) {
                 RCLCPP_INFO(this->get_logger(), "Noise image service triggered successfully.");
             } else {
                 RCLCPP_WARN(this->get_logger(), "Noise image service returned false.");
             }
         });
-        image_buffer_.emplace_back(left_image, right_image);
-        // RCLCPP_INFO(this->get_logger(), "Image buffer: %d", image_buffer_.size());
     }
 
     if (image_buffer_.size() >= buffer_size_  && capture_images_) {
@@ -75,6 +77,22 @@ void StereoAcquisition::service_cb(const std::shared_ptr<std_srvs::srv::Trigger:
         image_buffer_.clear();
         response->success = true;
         response->message = "Image capture started.";
+    }
+}
+void StereoAcquisition::service_see_cb(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+    if (request) {
+        RCLCPP_INFO(this->get_logger(), "Showing images: %ld", image_buffer_.size());
+        int count= 1;
+        for (auto &image_pair : image_buffer_) {
+            cv::imshow("Left Image", image_pair.first);
+            cv::imshow("Right Image", image_pair.second);
+            cv::waitKey(1000);
+            RCLCPP_INFO(this->get_logger(), "Showing images number: %d", count);
+            count++;
+        }
+        cv::destroyAllWindows();
+        response->success = true;
     }
 }
 

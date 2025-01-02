@@ -23,6 +23,9 @@ private:
     void service_cb(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                     std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
+    void service_see_cb(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                    std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+
     void check_noise_image_service();
 
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> left_sub;
@@ -37,6 +40,7 @@ private:
     bool capture_images_;
 
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr get_images_service_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr see_images_service_;
     rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr noise_image_client_;
     rclcpp::TimerBase::SharedPtr timer_;
 };
