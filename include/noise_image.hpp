@@ -48,6 +48,8 @@ private:
     std::pair<int, int> window_position_;
     int image_width_;
     int image_height_;
+    int img_counter_;
+    
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr change_image_service_;
     rclcpp::TimerBase::SharedPtr timer_;
 };

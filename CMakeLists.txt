@@ -58,8 +58,17 @@ install(TARGETS
 
 install(DIRECTORY
         launch
-        DESTINATION share/${PROJECT_NAME}
-)
+        DESTINATION share/${PROJECT_NAME})
+        
+install(DIRECTORY
+        scripts
+        DESTINATION lib/${PROJECT_NAME})
+
+install(PROGRAMS
+        scripts/inv_correlation.py
+        DESTINATION lib/${PROJECT_NAME})
+
+ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
