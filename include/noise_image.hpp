@@ -42,12 +42,15 @@ private:
     double persistence_;
     double lacunarity_;
     double octave_;
+
     std::string monitor_name_;
-    cv::Mat image_;
     std::string window_name_;
     std::pair<int, int> window_position_;
+    cv::Mat image_;
     int image_width_;
     int image_height_;
+    int img_counter_;
+    
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr change_image_service_;
     rclcpp::TimerBase::SharedPtr timer_;
 };

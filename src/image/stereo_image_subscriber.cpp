@@ -37,8 +37,8 @@ private:
             RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
             return;
         }
-        cv::imshow("Right Image", cv_ptr->image);
-        cv::waitKey(1000); // Display each image for 1 second
+        // cv::imshow("Right Image", cv_ptr->image);
+        // cv::waitKey(1000); // Display each image for 1 second
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr left_image_sub_;
