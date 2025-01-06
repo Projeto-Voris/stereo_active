@@ -12,9 +12,13 @@ public:
             "/SM3/right_image_buffer", 10, std::bind(&StereoImageSubscriber::rightImageCallback, this, std::placeholders::_1));
         
     }
+    ~StereoImageSubscriber() {
+        cv::destroyAllWindows();
+    }
 
 private:
     int count  = 1;
+    
     void leftImageCallback(const sensor_msgs::msg::Image::SharedPtr msg) {
         cv_bridge::CvImagePtr cv_ptr;
         try {
@@ -25,7 +29,7 @@ private:
         }
         RCLCPP_INFO(this->get_logger(), "Showing left image: %d", count);
         cv::imshow("Left Image", cv_ptr->image);
-        cv::waitKey(1000); // Display each image for 1 second
+        cv::waitKey(10); // Display each image for 1 second
         count++;
     }
 

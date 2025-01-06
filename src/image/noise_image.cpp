@@ -147,6 +147,7 @@ void ImageDisplayNode::change_image_cb(const std::shared_ptr<std_srvs::srv::SetB
     img_counter_++;
     RCLCPP_INFO(this->get_logger(), "Changing image to seed %d", img_counter_);
     image_ = generate_noise_image(img_counter_);
+
     response->success = true;
 }
 
