@@ -59,7 +59,6 @@ ImageDisplayNode::ImageDisplayNode() : Node("image_display_node") {
 
     get_screen_resolution(monitor_name_);
 
-
     img_counter_ = 0;
     image_ = generate_noise_image(img_counter_);
 
@@ -144,10 +143,10 @@ int ImageDisplayNode::generate_random_seed() {
 
 void ImageDisplayNode::change_image_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
                                        const std::shared_ptr<std_srvs::srv::SetBool::Response> response) {
+    // int seed = generate_random_seed();
     img_counter_++;
-    // RCLCPP_INFO(this->get_logger(), "Changing image to seed %d", img_counter_);
+    RCLCPP_INFO(this->get_logger(), "Changing image to seed %d", img_counter_);
     image_ = generate_noise_image(img_counter_);
-    // rclcpp::sleep_for(std::chrono::milliseconds(50));
 
     response->success = true;
 }

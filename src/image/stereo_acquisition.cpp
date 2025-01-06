@@ -6,7 +6,10 @@
 StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size_(10), capture_images_(false) {
     
     this->declare_parameter<int>("buffer_size", 10.0);
+    this->declare_parameter<std::string>("images_path", "/home/jetson/Pictures/SM3/temp");
     this->get_parameter("buffer_size", buffer_size_);
+    this->get_parameter("images_path", images_path_);
+    RCLCPP_INFO(this->get_logger(), "Image path %s.", images_path_.c_str());
 
     
     left_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "left_image");
@@ -23,12 +26,9 @@ StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size
 
     noise_image_client_ = this->create_client<std_srvs::srv::SetBool>("pattern_change");
 
+    count_ = 0;
 
-    left_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("left_image_buffer", 10);
-    right_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("right_image_buffer", 10);
-
-    // timer_ = this->create_wall_timer(
-        // std::chrono::milliseconds(50), std::bind(&StereoAcquisition::check_noise_image_service, this));
+    RCLCPP_INFO(this->get_logger(), "Image buffer size set to %ld.", buffer_size_);
 }
 
 StereoAcquisition::~StereoAcquisition() {}
@@ -47,38 +47,57 @@ void StereoAcquisition::images_cb(const sensor_msgs::msg::Image::ConstSharedPtr 
         return;
     }
 
-    cv::Mat left_image = cv_ptrLeft->image;
-    cv::Mat right_image = cv_ptrRight->image;
+    // Condition to capture images on buffer
+    if (capture_images_ && image_buffer_.size() < buffer_size_) {
 
-    if (capture_images_) {
-        image_buffer_.emplace_back(left_image, right_image);
         auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
         request->data = true;
-        noise_image_client_->async_send_request(request, [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture result) {
-            if (result.get()->success) {
-                RCLCPP_INFO(this->get_logger(), "Noise image service triggered successfully.");
-            } else {
-                RCLCPP_WARN(this->get_logger(), "Noise image service returned false.");
+        noise_image_client_->async_send_request(request, [this, cv_ptrLeft, cv_ptrRight](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture result) {
+            if (result.get()->success && image_buffer_.size() < buffer_size_) {
+                count_++;
+                if (count_ < 6){
+                    return;
+                }
+                cv::Mat left_image = cv_ptrLeft->image;
+                cv::Mat right_image = cv_ptrRight->image;
+
+                image_buffer_.emplace_back(left_image, right_image);
+
+                RCLCPP_INFO(this->get_logger(), "Images captured and added to buffer - %ld.", image_buffer_.size());
+                // RCLCPP_INFO(this->get_logger(), "Images published.");
+
+                if (image_buffer_.size() >= buffer_size_) {
+                    capture_images_ = false;
+
+                }
+                
+            
+            }
+            else {
+                if(image_buffer_.size() >= buffer_size_) {
+                    capture_images_ = false;
+                    // RCLCPP_INFO(this->get_logger(), "Buffer is full. Stopping image capture.");
+                    // RCLCPP_INFO(this->get_logger(), "Buffer size: %ld", image_buffer_.size());
+                    count_ = 0;
+                    // rclcpp::sleep_for(std::chrono::milliseconds(1000));
+                    // RCLCPP_INFO(this->get_logger(), "Buffer is full. Stopping image capture.");
+                    
+                    // Publish the images in the buffer
+                    for (const auto &image_pair : image_buffer_) {
+                        std::string left_image_path = images_path_ + "/left/L" + std::to_string(count_) + ".jpg";
+                        std::string right_image_path = images_path_ + "/right/R" + std::to_string(count_) + ".jpg";
+                        cv::imwrite(left_image_path, image_pair.first);
+                        cv::imwrite(right_image_path, image_pair.second);
+                        count_++;
+                    }
+                }
+                else{
+                    RCLCPP_WARN(this->get_logger(), "Noise image service returned false.");
+                }
             }
         });
     }
 
-    if (image_buffer_.size() >= buffer_size_  && capture_images_) {
-        capture_images_ = false;
-        RCLCPP_INFO(this->get_logger(), "Buffer is full. Stopping image capture.");
-        // Publish the images in the buffer
-        for (const auto &image_pair : image_buffer_) {
-            sensor_msgs::msg::Image::SharedPtr left_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image_pair.first).toImageMsg();
-            sensor_msgs::msg::Image::SharedPtr right_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image_pair.second).toImageMsg();
-            left_image_pub_->publish(*left_msg);
-            right_image_pub_->publish(*right_msg);
-            }
-    }
-
-
-    // cv::imshow("Left Image", left_image);
-    // cv::imshow("Right Image", right_image);
-    // cv::waitKey(10);
 
 }
 
@@ -86,10 +105,11 @@ void StereoAcquisition::service_cb(const std::shared_ptr<std_srvs::srv::Trigger:
                                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
     if (request) {
         capture_images_ = true;
-        image_buffer_.clear();
+        image_buffer_.clear();                           
+    }
         response->success = true;
         response->message = "Image capture started.";
-    }
+
 }
 void StereoAcquisition::service_see_cb(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -105,29 +125,6 @@ void StereoAcquisition::service_see_cb(const std::shared_ptr<std_srvs::srv::Trig
         }
         cv::destroyAllWindows();
         response->success = true;
-    }
-}
-
-void StereoAcquisition::check_noise_image_service() {
-    if (image_buffer_.size() >= buffer_size_) {
-        capture_images_ = false;
-        return;
-    }
-
-    auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
-    request->data = true;
-
-    auto result = noise_image_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), result) == rclcpp::FutureReturnCode::SUCCESS) {
-        if (result.get()->success) {
-            RCLCPP_INFO(this->get_logger(), "Noise image service returned true. Starting image capture.");
-            capture_images_ = true;
-            image_buffer_.clear();
-        } else {
-            RCLCPP_WARN(this->get_logger(), "Noise image service returned false.");
-        }
-    } else {
-        RCLCPP_ERROR(this->get_logger(), "Failed to call noise_image service.");
     }
 }
 

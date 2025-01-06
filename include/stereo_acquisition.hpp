@@ -26,7 +26,6 @@ private:
     void service_see_cb(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                     std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
-    void check_noise_image_service();
 
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> left_sub;
     std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> right_sub;
@@ -37,15 +36,15 @@ private:
 
     std::vector<std::pair<cv::Mat, cv::Mat>> image_buffer_;
     size_t buffer_size_;
+    std::string images_path_;
     bool capture_images_;
+    int count_;
 
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr get_images_service_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr see_images_service_;
     rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr noise_image_client_;
     rclcpp::TimerBase::SharedPtr timer_;
     
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr left_image_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr right_image_pub_;
 };
 
 #endif // STEREO_ACQUISITION_HPP
