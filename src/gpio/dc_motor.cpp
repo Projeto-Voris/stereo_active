@@ -1,87 +1,58 @@
+#include <vector>
+#include <chrono>
+#include <thread>
+#include <cmath>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <gpiod.h>
-#include <iostream>
-#include <vector>
-#include <memory>
-#include <thread>
-#include <chrono>
 
-class StepperMotorController : public rclcpp::Node
+class StepperMotor : public rclcpp::Node
 {
 public:
-    StepperMotorController()
-        : Node("stepper_motor_controller"), chip(nullptr)
+    StepperMotor() : Node("stepper_motor")
     {
-
-        // Open GPIO chip
-        chip = gpiod_chip_open("/dev/gpiochip0");
-        if (!chip) {
-            RCLCPP_FATAL(this->get_logger(), "Failed to open GPIO chip.");
-            rclcpp::shutdown();
-            return;
-        }
-
-        // Configure the GPIO pins
-        for (int pin : gpio_pins_) {
-            struct gpiod_line *line = gpiod_chip_get_line(chip, pin);
-            if (!line || gpiod_line_request_output(line, "stepper_motor", 0) < 0) {
-                RCLCPP_FATAL(this->get_logger(), "Failed to configure GPIO pin %d.", pin);
-                gpiod_chip_close(chip);
-                rclcpp::shutdown();
-                return;
-            }
-            gpio_lines_.push_back(line);
+        // Initialize GPIO lines
+        chip = gpiod_chip_open_by_name("gpiochip0");
+        for (int pin : gpio_pins_)
+        {
+            gpio_lines_.push_back(gpiod_chip_get_line(chip, pin));
+            gpiod_line_request_output(gpio_lines_.back(), "stepper_motor", 0);
         }
 
         // Subscribe to the topic
         subscription_ = this->create_subscription<std_msgs::msg::Int32>(
-            "motor_values", 10,
-            std::bind(&StepperMotorController::control_motor, this, std::placeholders::_1));
-
-        RCLCPP_INFO(this->get_logger(), "Stepper Motor Controller Node has started.");
+            "stepper_motor/steps", 10, std::bind(&StepperMotor::move_motor, this, std::placeholders::_1));
     }
 
-    ~StepperMotorController()
+    ~StepperMotor()
     {
-        for (auto line : gpio_lines_) {
-            gpiod_line_release(line);
-        }
-        if (chip) {
-            gpiod_chip_close(chip);
-        }
+        gpiod_chip_close(chip);
     }
 
 private:
-    void control_motor(const std_msgs::msg::Int32::SharedPtr msg)
+    void move_motor(const std_msgs::msg::Int32::SharedPtr msg)
     {
         int steps = msg->data;
-        RCLCPP_INFO(this->get_logger(), "Received %d steps to move the stepper motor.", steps);
-
-        if (steps == 0) {
+        if (steps == 0)
+        {
             stop_motor();
             return;
         }
 
-        // Direction of movement
         bool clockwise = (steps > 0);
         steps = std::abs(steps);
 
-        // Step sequence for the 28BYJ-48 motor
         std::vector<std::vector<int>> step_sequence = {
             {1, 0, 0, 1},
-            {1, 0, 0, 0},
-            {1, 1, 0, 0},
-            {0, 1, 0, 0},
             {0, 1, 1, 0},
-            {0, 0, 1, 0},
-            {0, 0, 1, 1},
-            {0, 0, 0, 1}};
+            {0, 1, 0, 1},
+            {1, 0, 0, 1}};
 
-        for (int i = 0; i < steps; ++i) {
+        for (int i = 0; i < steps; ++i)
+        {
             int step_index = clockwise ? i % 8 : (7 - (i % 8));
             set_motor_pins(step_sequence[step_index]);
-            std::this_thread::sleep_for(std::chrono::milliseconds(2)); // Adjust for speed
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
 
         stop_motor();
@@ -89,8 +60,10 @@ private:
 
     void set_motor_pins(const std::vector<int> &pin_states)
     {
-        for (size_t i = 0; i < gpio_lines_.size(); ++i) {
-            if (gpiod_line_set_value(gpio_lines_[i], pin_states[i]) < 0) {
+        for (size_t i = 0; i < gpio_lines_.size(); ++i)
+        {
+            if (gpiod_line_set_value(gpio_lines_[i], pin_states[i]) < 0)
+            {
                 RCLCPP_ERROR(this->get_logger(), "Failed to set GPIO pin %d to %d.", gpio_pins_[i], pin_states[i]);
             }
         }
@@ -98,10 +71,10 @@ private:
 
     void stop_motor()
     {
-        set_motor_pins({0, 0, 0, 0}); // Turn off all motor phases
+        set_motor_pins({0, 0, 0, 0});
     }
 
-    std::vector<int> gpio_pins_ = {29,31,32,33};
+    std::vector<int> gpio_pins_ = {105, 41, 106, 43};
     std::vector<struct gpiod_line *> gpio_lines_;
     struct gpiod_chip *chip;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr subscription_;
@@ -110,7 +83,7 @@ private:
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<StepperMotorController>());
+    rclcpp::spin(std::make_shared<StepperMotor>());
     rclcpp::shutdown();
     return 0;
 }
