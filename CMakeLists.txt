@@ -23,17 +23,23 @@ find_package(image_transport REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
+# Manually specify the path to gpiod
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GPIOD REQUIRED libgpiod)
+include_directories(${GPIOD_INCLUDE_DIRS})
+link_directories(${GPIOD_LIBRARY_DIRS})
+
 # Manually specify the path to libnoise
 set(LIBNOISE_INCLUDE_DIRS "/usr/local/include")
 set(LIBNOISE_LIBRARIES "/usr/local/lib/libnoise-static.a")
 include_directories(include ${LIBNOISE_INCLUDE_DIRS})
 
-# add_executable(dc_motor src/dc_motor.cpp)
-# target_link_libraries(dc_motor gpiod)
-# ament_target_dependencies(dc_motor rclcpp std_msgs)
+add_executable(dc_motor src/gpio/dc_motor.cpp)
+target_link_libraries(dc_motor ${GPIOD_LIBRARIES})
+ament_target_dependencies(dc_motor rclcpp std_msgs)
 
-# add_executable(dc_pub src/dc_publisher.cpp)
-# ament_target_dependencies(dc_pub rclcpp std_msgs)  
+add_executable(dc_pub src/gpio/dc_publisher.cpp)
+ament_target_dependencies(dc_pub rclcpp std_msgs)  
 
 add_executable(noise_image src/image/noise_image.cpp)
 target_link_libraries(noise_image ${OpenCV_LIBS} ${LIBNOISE_LIBRARIES} X11 Xinerama OpenMP::OpenMP_CXX)
@@ -49,8 +55,8 @@ ament_target_dependencies(stereo_image_subscriber rclcpp sensor_msgs cv_bridge)
 
 
 install(TARGETS 
-        # dc_motor 
-        # dc_pub
+        dc_motor 
+        dc_pub
         stereo_acq
         noise_image
         stereo_image_subscriber
