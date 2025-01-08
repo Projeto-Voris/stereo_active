@@ -36,7 +36,7 @@ include_directories(include ${LIBNOISE_INCLUDE_DIRS})
 
 add_executable(dc_motor src/gpio/dc_motor.cpp)
 target_link_libraries(dc_motor ${GPIOD_LIBRARIES})
-ament_target_dependencies(dc_motor rclcpp std_msgs)
+ament_target_dependencies(dc_motor rclcpp std_msgs std_srvs)
 
 add_executable(dc_pub src/gpio/dc_publisher.cpp)
 ament_target_dependencies(dc_pub rclcpp std_msgs)  
@@ -71,7 +71,7 @@ install(DIRECTORY
         DESTINATION lib/${PROJECT_NAME})
 
 install(PROGRAMS
-        scripts/inv_correlation.py
+        scripts/inv_correlation_node.py
         DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)
