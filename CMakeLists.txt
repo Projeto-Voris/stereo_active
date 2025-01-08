@@ -71,7 +71,7 @@ install(DIRECTORY
         DESTINATION lib/${PROJECT_NAME})
 
 install(PROGRAMS
-        scripts/inv_correlation.py
+        scripts/inv_correlation_node.py
         DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)

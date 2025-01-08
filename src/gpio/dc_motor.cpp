@@ -6,15 +6,16 @@
 #include <std_msgs/msg/float32.hpp>
 #include <gpiod.h>
 #include <iostream>
+#include <atomic>
 
 class StepperMotor : public rclcpp::Node
 {
 public:
-    StepperMotor() : Node("stepper_motor")
+    StepperMotor() : Node("stepper_motor"), keep_rotating_(false)
     {
         // Declare parameters
-        this->declare_parameter<std::string>("stepping_mode", "half"); // full or half
-        this->declare_parameter<int>("steps_per_revolution", 512); // 4096 - half, 2048 - full
+        this->declare_parameter<std::string>("stepping_mode", "full"); // full or half
+        this->declare_parameter<int>("steps_per_revolution", 2048); // 4096 - half, 2048 - full
         this->declare_parameter<int>("delay", 10); // Delay in milliseconds
 
 
@@ -55,6 +56,10 @@ public:
 
     ~StepperMotor()
     {
+        keep_rotating_ = false;
+        if (rotation_thread_.joinable()) {
+            rotation_thread_.join();
+        }
         for (auto line : gpio_lines_) {
             gpiod_line_release(line);
         }
@@ -64,14 +69,16 @@ public:
 private:
     void move_motor(const std_msgs::msg::Float32::SharedPtr msg)
     {
+        // Get parameters
+        this->get_parameter("steps_per_revolution", steps_per_revolution_);
+        this->get_parameter("stepping_mode", stepping_mode_);
+        this->get_parameter("delay", delay_);
+        
         std::vector<std::vector<int>> step_sequence;
 
         if (stepping_mode_ == "full") {
-            RCLCPP_INFO(this->get_logger(), "Full stepping mode");
             step_sequence = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
-        }
-        else{
-            RCLCPP_INFO(this->get_logger(), "Half stepping mode");
+        } else {
             step_sequence = {
                 {1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
                 {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 0, 0, 1}, {1, 0, 0, 1}};
@@ -79,33 +86,52 @@ private:
 
         float angle = msg->data;
         RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
-        int steps = static_cast<int>((angle / 360.0) * steps_per_revolution_);
-        if (steps == 0)
-        {
-            stop_motor();
-            return;
-        }
 
-        bool clockwise = (steps > 0);
-        steps = std::abs(steps);    
- 
-
-    if (!clockwise) {
-        std::reverse(step_sequence.begin(), step_sequence.end());
-    }
-
-    for (int i = 0; i < steps; ++i)
-    {
-        for (const auto& step : step_sequence)
-        {
-            for (size_t j = 0; j < gpio_lines_.size(); ++j)
-            {
-                gpiod_line_set_value(gpio_lines_[j], step[j]);
+        if (angle == 400.0) {
+            RCLCPP_INFO(this->get_logger(), "Continuous rotation mode");
+            keep_rotating_ = false;
+            if (rotation_thread_.joinable()) {
+                rotation_thread_.join();
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+            keep_rotating_ = true;
+            rotation_thread_ = std::thread([this, step_sequence]() {
+                while (keep_rotating_) {
+                    for (const auto& step : step_sequence) {
+                        for (size_t j = 0; j < gpio_lines_.size(); ++j) {
+                            gpiod_line_set_value(gpio_lines_[j], step[j]);
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                    }
+                }
+            });
+        } else {
+            keep_rotating_ = false;
+            if (rotation_thread_.joinable()) {
+                rotation_thread_.join();
+            }
+
+            int steps = static_cast<int>((angle / 360.0) * steps_per_revolution_);
+            if (steps == 0) {
+                stop_motor();
+                return;
+            }
+
+            bool clockwise = (steps > 0);
+            steps = std::abs(steps);
+
+            if (!clockwise) {
+                std::reverse(step_sequence.begin(), step_sequence.end());
+            }
+
+            for (int i = 0; i < steps; ++i) {
+                const auto& step = step_sequence[i % step_sequence.size()];
+                for (size_t j = 0; j < gpio_lines_.size(); ++j) {
+                    gpiod_line_set_value(gpio_lines_[j], step[j]);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+            }
         }
     }
-}
 
     void stop_motor()
     {
@@ -123,6 +149,8 @@ private:
     std::vector<std::vector<int>> step_sequence_;
     int delay_;
     int steps_per_revolution_;
+    std::atomic<bool> keep_rotating_;
+    std::thread rotation_thread_;
 };
 
 int main(int argc, char *argv[])
