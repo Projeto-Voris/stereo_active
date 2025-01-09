@@ -13,7 +13,6 @@
 class GpioControl : public rclcpp::Node
 {
 public:
-
     GpioControl() : Node("gpio_control_node"), keep_rotating_(false)
     {
         // Declare parameters
@@ -80,9 +79,7 @@ public:
     }
 
 private:
-
     void move_motor(const std_msgs::msg::Float32::SharedPtr msg){
-
         // Get parameters
         this->get_parameter("steps_per_revolution", steps_per_revolution_);
         this->get_parameter("stepping_mode", stepping_mode_);
@@ -124,7 +121,6 @@ private:
                 rotation_thread_.join();
             }
 
-
             int steps = static_cast<int>((angle / 360.0) * steps_per_revolution_);
             if (steps == 0) {
                 stop_motor();
@@ -133,7 +129,6 @@ private:
 
             bool clockwise = (steps > 0);
             steps = std::abs(steps);
-
 
             if (!clockwise) {
                 std::reverse(step_sequence.begin(), step_sequence.end());
