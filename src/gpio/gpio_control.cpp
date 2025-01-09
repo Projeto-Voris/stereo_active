@@ -164,8 +164,12 @@ private:
             gpiod_line_set_value(laser_line, 1);
             response->success = true;
         }
-        else{
+        else if(!request->data){
             gpiod_line_set_value(laser_line, 0);
+            response->success = true;
+        }
+        else
+        {
             response->success = false;
         }
     }

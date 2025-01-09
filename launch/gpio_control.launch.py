@@ -33,13 +33,13 @@ def generate_launch_description():
 
         Node(
             package='stereo_active',  # Replace with your package name
-            executable='dc_motor',  # Replace with your executable name
+            executable='gpio_control',  # Replace with your executable name
             namespace=LaunchConfiguration('namespace'),
-            name='dc_motor',
+            name='gpio_control_node',
             output='screen',
             parameters=[
-                {'stepping_mode': LaunchConfiguration('stepping_mode')}
-                {'delay': LaunchConfiguration('step_delay')}
+                {'stepping_mode': LaunchConfiguration('stepping_mode')},
+                {'delay': LaunchConfiguration('step_delay')},
                 {'steps_per_revolution': LaunchConfiguration('steps_per_rev')}
             ],
             remappings=[
