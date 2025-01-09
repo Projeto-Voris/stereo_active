@@ -21,9 +21,14 @@ def generate_launch_description():
                 description='Right camera info topic'
             ),
             DeclareLaunchArgument(
-                'images_path',
-                default_value='/home/voris/Pictures/SM3/temp',
-                description='Path to the images'
+                'left_image',
+                default_value='/SM2/left/image_raw',
+                description='Left camera info topic'
+            ),
+            DeclareLaunchArgument(
+                'right_image',
+                default_value='/SM2/right/image_raw',
+                description='Right camera info topic'
             ),
             DeclareLaunchArgument(
                 'point_cloud',
@@ -32,16 +37,18 @@ def generate_launch_description():
             ),
             Node(
                 package='stereo_active',
-                executable='inv_correlation.py',
-                name='inverse_triangulation_node',
+                executable='inv_correlation_node.py',
+                name='inverse_correlation_node',
                 namespace=LaunchConfiguration('namespace'),
                 output='screen',
                 parameters=[
-                    {'images_path': LaunchConfiguration('images_path')}
+                    {'num_images': 10}
                 ],
                 remappings=[
                     ('left/camera_info', LaunchConfiguration('left_camera_info')),
                     ('right/camera_info', LaunchConfiguration('right_camera_info')),
+                    ('left/image', LaunchConfiguration('left_image')),
+                    ('right/image', LaunchConfiguration('right_image')),
                     ('point_cloud', LaunchConfiguration('point_cloud'))
                 ]
             )

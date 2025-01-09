@@ -5,8 +5,13 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import PointCloud2, CameraInfo
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2
+import cv_bridge
 from std_msgs.msg import Header
+import message_filters
+import time
+from std_srvs.srv import Trigger
 
 from scripts.InverseTriangulation import InverseTriangulation
 
@@ -15,35 +20,64 @@ class InverseTriangulationNode(Node):
         super().__init__('inverse_triangulation_node')
         self.Zscan = InverseTriangulation()
         self.get_logger().info('InverseTriangulationNode has been started.')
-        self.declare_parameter('image_path', '/home/voris/Pictures/SM3/temp')
 
-        self.image_path = self.get_parameter('images_path').get_parameter_value().string_value
+        self.declare_parameter('num_images', 10)
+        self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
+        self.get_logger().info(f'Number of images to be captured: {self.num_images}')
 
-        if not os.path.exists(self.image_path) or not os.listdir(self.image_path):
-            self.get_logger().error('No images found in the specified path')
-            return
+        self.left_images = []
+        self.right_images = []
 
         self.create_subscription(CameraInfo, 'left/camera_info', self.camera_info_left_cb, 1)
         self.create_subscription(CameraInfo, 'right/camera_info', self.camera_info_right_cb, 1)
 
+        self.left_image_sub = message_filters.Subscriber(self, Image, 'left/image')
+        self.right_image_sub = message_filters.Subscriber(self, Image, 'right/image')
+
+        self.ts = message_filters.ApproximateTimeSynchronizer([self.left_image_sub, self.right_image_sub],
+                                                    queue_size=10, slop=0.005)
+        self.ts.registerCallback(self.stereo_images_callback)
+
         self.pcl_publisher = self.create_publisher(PointCloud2, 'point_cloud', 10)
-        self.srv = self.create_service(Trigger, 'process_pointcloud', self.process_pointcloud_cb)
 
+        # Create mutually exclusive callback groups
+        self.callback_group_srv = MutuallyExclusiveCallbackGroup()
+        self.callback_group_gpio_client = MutuallyExclusiveCallbackGroup()
 
+        self.srv = self.create_service(Trigger, 'get_images', self.get_images_cb, callback_group=self.callback_group_srv)
+        self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_gpio_client)
     
-    def process_pointcloud_cb(self, request, response):
+    def stereo_images_callback(self, left_image, right_image):
         """
-        Service callback function to read images from the specified path
+        Callback function for the stereo images subscriber
         """
-        if (request.trigger):
-            self.Zscan.read_images(os.path.join(self.image_path, 'right'), 
-                                                                sorted(os.listdir(os.path.join(self.image_path, 'right'))),
-                                                                CLAHE=True)
-            self.Zscan.read_images(os.path.join(self.image_path, 'left'), 
-                                                                sorted(os.listdir(os.path.join(self.image_path, 'left'))),
-                                                                CLAHE=True)
-            self.spatial_correl_process()
-            response.success = True
+        if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
+            left_images = cv2.cvtColor(cv_bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
+            right_images = cv2.cvtColor(cv_bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
+        else:
+            left_images = cv_bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
+            right_images = cv_bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
+    
+        self.left_images.append(left_images)
+        self.right_images.append(right_images)
+
+    def get_images_cb(self, request, response):
+        """
+        Service callback to get stereo images
+        """
+        if request:
+            for n in range(self.num_images):
+                # self.get_logger().info(f'Waiting for image {n+1}')
+                trigger_request = Trigger.Request()
+                # self.get_logger().info(f'Triggering')
+                future = self.gpio_client.call_async(trigger_request)
+                rclpy.spin_until_future_complete(self, future)
+                if future.result() is not None:
+                    self.get_logger().info(f'Image {n+1} captured')
+                else:
+                    self.get_logger().error('Service call failed')
+        response.success = True
+        response.message = 'Images captured successfully'
         return response
 
     def camera_info_left_cb(self, msg):
@@ -79,6 +113,8 @@ class InverseTriangulationNode(Node):
         """
         Function to perform spatial correlation
         """
+        Zscan.convert_images(self.left_images, self.right_images)
+
         points_3d = Zscan.points3d(x_lim=(-300, 350), y_lim=(-400, 400), z_lim=(-800, 400), xy_step=15, z_step=2,
                                    visualize=False)
 

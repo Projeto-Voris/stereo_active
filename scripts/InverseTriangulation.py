@@ -9,8 +9,8 @@ import gc
 class InverseTriangulation:
     def __init__(self):
 
-        self.left_images = ndarray([])
-        self.right_images = ndarray([])
+        self.left_images = cp.array([])
+        self.right_images = cp.array([])
 
         # Initialize all camera parameters in a single nested dictionary
         self.camera_params = {
@@ -55,6 +55,13 @@ class InverseTriangulation:
         self.left_images = cp.asarray(left_imgs)
         self.right_images = cp.asarray(right_imgs)
 
+    def convert_images(self, left_imgs, right_imgs):
+        """
+        Convert images to CuPy arrays for GPU processing.
+        """
+
+        self.left_images = cp.asarray(np.stack(left_imgs, axis=-1)).astype(cp.uint8)
+        self.right_images = cp.asarray(np.stack(right_imgs, axis=-1)).astype(cp.uint8)
 
     def points3d(self, x_lim=(-5, 5), y_lim=(-5, 5), z_lim=(0, 5), xy_step=1.0, z_step=1.0, visualize=False):
         """
