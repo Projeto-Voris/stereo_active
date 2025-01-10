@@ -40,6 +40,11 @@ def generate_launch_description():
                 default_value='motor/angle',
                 description='Point cloud topic'
             ),
+            DeclareLaunchArgument(
+                'n_images',
+                default_value='10',
+                description='Number of images to acquire'
+            ),
             Node(
                 package='stereo_active',
                 executable='inv_correlation_node.py',
@@ -47,7 +52,7 @@ def generate_launch_description():
                 namespace=LaunchConfiguration('namespace'),
                 output='screen',
                 parameters=[
-                    {'num_images': 10}
+                    {'num_images': LaunchConfiguration('n_images')}
                 ],
                 remappings=[
                     ('left/camera_info', LaunchConfiguration('left_camera_info')),

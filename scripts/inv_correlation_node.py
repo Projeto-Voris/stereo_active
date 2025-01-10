@@ -73,7 +73,7 @@ class InverseTriangulationNode(Node):
         """
         Service callback to get stereo images
         """
-        self.num_images = self.get_parameter_value
+        self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         if request:
             float_msg = Float32()
             float_msg.data = 400.0  # Example value
