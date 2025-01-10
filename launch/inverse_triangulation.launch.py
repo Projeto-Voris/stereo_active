@@ -35,6 +35,11 @@ def generate_launch_description():
                 default_value='point_cloud',
                 description='Point cloud topic'
             ),
+            DeclareLaunchArgument(
+                'motor_topic',
+                default_value='motor/angle',
+                description='Point cloud topic'
+            ),
             Node(
                 package='stereo_active',
                 executable='inv_correlation_node.py',
@@ -49,7 +54,8 @@ def generate_launch_description():
                     ('right/camera_info', LaunchConfiguration('right_camera_info')),
                     ('left/image', LaunchConfiguration('left_image')),
                     ('right/image', LaunchConfiguration('right_image')),
-                    ('point_cloud', LaunchConfiguration('point_cloud'))
+                    ('point_cloud', LaunchConfiguration('point_cloud')),
+                    ('motor/angle', LaunchConfiguration('motor_topic'))
                 ]
             )
         ])

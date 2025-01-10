@@ -97,23 +97,26 @@ private:
 
         float angle = msg->data;
         RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
-
-        if (angle == 400.0) {
+        if (angle == 400.0 || angle == -400.0) {
             RCLCPP_INFO(this->get_logger(), "Continuous rotation mode");
             keep_rotating_ = false;
             if (rotation_thread_.joinable()) {
-                rotation_thread_.join();
+            rotation_thread_.join();
             }
             keep_rotating_ = true;
+            bool clockwise = (angle == 400.0);
+            if (!clockwise) {
+            std::reverse(step_sequence.begin(), step_sequence.end());
+            }
             rotation_thread_ = std::thread([this, step_sequence]() {
-                while (keep_rotating_) {
-                    for (const auto& step : step_sequence) {
-                        for (size_t j = 0; j < gpio_lines_.size(); ++j) {
-                            gpiod_line_set_value(gpio_lines_[j], step[j]);
-                        }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
-                    }
+            while (keep_rotating_) {
+                for (const auto& step : step_sequence) {
+                for (size_t j = 0; j < gpio_lines_.size(); ++j) {
+                    gpiod_line_set_value(gpio_lines_[j], step[j]);
                 }
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                }
+            }
             });
         } else {
             keep_rotating_ = false;
@@ -162,10 +165,12 @@ private:
                  const std_srvs::srv::SetBool::Response::SharedPtr response){
         if (request->data){
             gpiod_line_set_value(laser_line, 1);
+            response->message = "Laser ON";
             response->success = true;
         }
         else if(!request->data){
             gpiod_line_set_value(laser_line, 0);
+            response->message = "Laser OFF";
             response->success = true;
         }
         else

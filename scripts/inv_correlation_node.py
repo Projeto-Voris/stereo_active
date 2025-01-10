@@ -7,11 +7,12 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
+from std_msgs.msg import Float32
 import cv_bridge
 from std_msgs.msg import Header
 import message_filters
 import time
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, SetBool
 
 from scripts.InverseTriangulation import InverseTriangulation
 
@@ -34,6 +35,9 @@ class InverseTriangulationNode(Node):
         self.left_image_sub = message_filters.Subscriber(self, Image, 'left/image')
         self.right_image_sub = message_filters.Subscriber(self, Image, 'right/image')
 
+        self.motor_angle_pub = self.create_publisher(Float32, 'motor/angle', 10)
+
+
         self.ts = message_filters.ApproximateTimeSynchronizer([self.left_image_sub, self.right_image_sub],
                                                     queue_size=10, slop=0.005)
         self.ts.registerCallback(self.stereo_images_callback)
@@ -42,10 +46,12 @@ class InverseTriangulationNode(Node):
 
         # Create mutually exclusive callback groups
         self.callback_group_srv = MutuallyExclusiveCallbackGroup()
-        self.callback_group_gpio_client = MutuallyExclusiveCallbackGroup()
+        self.callback_group_trigger_client = MutuallyExclusiveCallbackGroup()
+        self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
         self.srv = self.create_service(Trigger, 'get_images', self.get_images_cb, callback_group=self.callback_group_srv)
-        self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_gpio_client)
+        self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
+        self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
     
     def stereo_images_callback(self, left_image, right_image):
         """
@@ -60,24 +66,52 @@ class InverseTriangulationNode(Node):
     
         self.left_images.append(left_images)
         self.right_images.append(right_images)
+        if len(self.left_images) >= self.num_images and len(self.right_images) >= self.num_images:
+            self.correlation_process();
 
     def get_images_cb(self, request, response):
         """
         Service callback to get stereo images
         """
+        self.num_images = self.get_parameter_value
         if request:
-            for n in range(self.num_images):
-                # self.get_logger().info(f'Waiting for image {n+1}')
-                trigger_request = Trigger.Request()
-                # self.get_logger().info(f'Triggering')
-                future = self.gpio_client.call_async(trigger_request)
-                rclpy.spin_until_future_complete(self, future)
-                if future.result() is not None:
-                    self.get_logger().info(f'Image {n+1} captured')
-                else:
-                    self.get_logger().error('Service call failed')
-        response.success = True
-        response.message = 'Images captured successfully'
+            float_msg = Float32()
+            float_msg.data = 400.0  # Example value
+            self.motor_angle_pub.publish(float_msg)
+            # Call laser service
+            laser_request = SetBool.Request()
+            laser_request.data = True  # Turn on the laser
+            future_laser = self.laser_client.call_async(laser_request)
+            rclpy.spin_until_future_complete(self, future_laser)
+            # If laser service was successful, trigger the camera
+            if future_laser.result() is not None:
+                self.get_logger().info('Laser turned on')
+                # rclpy.spin_once(self)
+                # time.sleep(0.5)  # Delay to wait for the image to be captured
+                for n in range(self.num_images):
+                    # self.get_logger().info(f'Waiting for image {n+1}')
+                    trigger_request = Trigger.Request()
+                    # self.get_logger().info(f'Triggering')
+                    future = self.gpio_client.call_async(trigger_request)
+                    rclpy.spin_until_future_complete(self, future)
+                    if future.result() is not None:
+                        self.get_logger().info(f'Image {n+1} captured')
+                        time.sleep(0.150)
+                    else:
+                        self.get_logger().error('Service call failed')
+            # Call laser service to turn off
+            laser_request = SetBool.Request()
+            laser_request.data = False  # Turn off the laser
+            future_laser = self.laser_client.call_async(laser_request)
+            rclpy.spin_until_future_complete(self, future_laser)
+            if future_laser.result() is not None:
+                self.get_logger().info('Laser turned off')
+
+            rclpy.spin_until_future_complete(self, future_laser)
+            response.success = True
+            response.message = 'Images captured successfully'
+            float_msg.data = 0.0  # Example value
+            self.motor_angle_pub.publish(float_msg)
         return response
 
     def camera_info_left_cb(self, msg):
@@ -89,9 +123,8 @@ class InverseTriangulationNode(Node):
         self.Zscan.camera_params['left']['kc'] = np.array(msg.d).reshape(5, 1)
 
         # Transform projection to rotation and translation vectors
-        p_l = np.array(msg.p).reshape(3, 4)
-        self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3,3)
-        self.Zscan.camera_params['left']['t'] = np.array(msg.p).reshape(4,3)[:, 3]
+        self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
+        self.Zscan.camera_params['left']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
 
     def camera_info_right_cb(self, msg):
         """
@@ -104,15 +137,16 @@ class InverseTriangulationNode(Node):
         
         # Transform projection to rotation and translation vectors
         self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
-        self.Zscan.camera_params['right']['t'] = np.array(msg.p).reshape(4, 3)[:, 3]
+        self.Zscan.camera_params['right']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
 
-        self.Zscan.camera_params['stereo']['R'] = np.array(msg.p).reshape(4, 3)[:3, :3]
-        self.Zscan.camera_params['stereo']['T'] = np.array(msg.p).reshape(4, 3)[:, 3]
+        self.Zscan.camera_params['stereo']['R'] = np.array(msg.p).reshape(3, 4)[:3, :3]
+        self.Zscan.camera_params['stereo']['T'] = np.array(msg.p).reshape(3, 4)[:, 3]
 
     def spatial_correl_process(self):
         """
         Function to perform spatial correlation
         """
+        self.get_logger().info('Performing spatial correlation')
         Zscan.convert_images(self.left_images, self.right_images)
 
         points_3d = Zscan.points3d(x_lim=(-300, 350), y_lim=(-400, 400), z_lim=(-800, 400), xy_step=15, z_step=2,
