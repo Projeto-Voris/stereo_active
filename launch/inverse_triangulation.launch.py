@@ -1,7 +1,9 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
+from launch_ros.substitutions import FindPackageShare
+
 
 def generate_launch_description():
         return LaunchDescription([
@@ -12,22 +14,22 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 'left_camera_info',
-                default_value='/SM2/left/camera_info',
+                default_value='/SM3/left/camera_info',
                 description='Left camera info topic'
             ),
             DeclareLaunchArgument(
                 'right_camera_info',
-                default_value='/SM2/right/camera_info',
+                default_value='/SM3/right/camera_info',
                 description='Right camera info topic'
             ),
             DeclareLaunchArgument(
                 'left_image',
-                default_value='/SM2/left/image_raw',
+                default_value='/SM3/left/image_raw',
                 description='Left camera info topic'
             ),
             DeclareLaunchArgument(
                 'right_image',
-                default_value='/SM2/right/image_raw',
+                default_value='/SM3/right/image_raw',
                 description='Right camera info topic'
             ),
             DeclareLaunchArgument(
@@ -45,6 +47,12 @@ def generate_launch_description():
                 default_value='10',
                 description='Number of images to acquire'
             ),
+            DeclareLaunchArgument(
+                'yaml_path',
+                default_value=PathJoinSubstitution([FindPackageShare('stereo_active'), 'config','SM3.yaml']),
+                description='Number of images to acquire'
+            ),
+
             Node(
                 package='stereo_active',
                 executable='inv_correlation_node.py',
@@ -52,7 +60,8 @@ def generate_launch_description():
                 namespace=LaunchConfiguration('namespace'),
                 output='screen',
                 parameters=[
-                    {'num_images': LaunchConfiguration('n_images')}
+                    {'num_images': LaunchConfiguration('n_images'),
+                     'yaml_path': LaunchConfiguration('yaml_path')}
                 ],
                 remappings=[
                     ('left/camera_info', LaunchConfiguration('left_camera_info')),

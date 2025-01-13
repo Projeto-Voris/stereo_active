@@ -7,7 +7,7 @@ import gc
 
 
 class InverseTriangulation:
-    def __init__(self):
+    def __init__(self, yaml_file):
 
         self.left_images = cp.array([])
         self.right_images = cp.array([])
@@ -18,6 +18,7 @@ class InverseTriangulation:
             'right': {'kk': np.array([]), 'kc': np.array([]), 'r': np.array([]), 't': np.array([])},
             'stereo': {'R': np.array([]), 'T': np.array([])}
         }
+        self.read_yaml_file(yaml_file)
 
 
         self.z_scan_step = None
@@ -26,6 +27,28 @@ class InverseTriangulation:
 
         # self.uv_left = []
         # self.uv_right = []
+
+    def read_yaml_file(self, yaml_file):
+        """
+        Read YAML file to extract cameras parameters
+        """
+        # Load the YAML file
+        with open(yaml_file) as file:  # Replace with your file path
+            params = yaml.safe_load(file)
+
+            # Parse the matrices
+        self.camera_params['left']['kk'] = np.array(params['camera_matrix_left'], dtype=np.float64)
+        self.camera_params['left']['kc'] = np.array(params['dist_coeffs_left'], dtype=np.float64)
+        self.camera_params['left']['r'] = np.array(params['rot_matrix_left'], dtype=np.float64)
+        self.camera_params['left']['t'] = np.array(params['t_left'], dtype=np.float64)
+
+        self.camera_params['right']['kk'] = np.array(params['camera_matrix_right'], dtype=np.float64)
+        self.camera_params['right']['kc'] = np.array(params['dist_coeffs_right'], dtype=np.float64)
+        self.camera_params['right']['r'] = np.array(params['rot_matrix_right'], dtype=np.float64)
+        self.camera_params['right']['t'] = np.array(params['t_right'], dtype=np.float64)
+
+        self.camera_params['stereo']['R'] = np.array(params['R'], dtype=np.float64)
+        self.camera_params['stereo']['T'] = np.array(params['T'], dtype=np.float64)
 
     def read_images(self, path, images_list, CLAHE=False):
         """

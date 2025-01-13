@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from std_msgs.msg import Float32
-import cv_bridge
+from cv_bridge import CvBridge
 from std_msgs.msg import Header
 import message_filters
 import time
@@ -19,18 +19,23 @@ from scripts.InverseTriangulation import InverseTriangulation
 class InverseTriangulationNode(Node):
     def __init__(self):
         super().__init__('inverse_triangulation_node')
-        self.Zscan = InverseTriangulation()
         self.get_logger().info('InverseTriangulationNode has been started.')
 
         self.declare_parameter('num_images', 10)
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         self.get_logger().info(f'Number of images to be captured: {self.num_images}')
+        self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
+        self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
+
+
+        self.Zscan = InverseTriangulation(yaml_file=self.yaml_file)
+        self.bridge = CvBridge()
 
         self.left_images = []
         self.right_images = []
 
-        self.create_subscription(CameraInfo, 'left/camera_info', self.camera_info_left_cb, 1)
-        self.create_subscription(CameraInfo, 'right/camera_info', self.camera_info_right_cb, 1)
+        # self.create_subscription(CameraInfo, 'left/camera_info', self.camera_info_left_cb, 1)
+        # self.create_subscription(CameraInfo, 'right/camera_info', self.camera_info_right_cb, 1)
 
         self.left_image_sub = message_filters.Subscriber(self, Image, 'left/image')
         self.right_image_sub = message_filters.Subscriber(self, Image, 'right/image')
@@ -39,7 +44,7 @@ class InverseTriangulationNode(Node):
 
 
         self.ts = message_filters.ApproximateTimeSynchronizer([self.left_image_sub, self.right_image_sub],
-                                                    queue_size=10, slop=0.005)
+                                                    queue_size=10, slop=0.05)
         self.ts.registerCallback(self.stereo_images_callback)
 
         self.pcl_publisher = self.create_publisher(PointCloud2, 'point_cloud', 10)
@@ -52,22 +57,41 @@ class InverseTriangulationNode(Node):
         self.srv = self.create_service(Trigger, 'get_images', self.get_images_cb, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
+        self.view_srv = self.create_service(Trigger, 'view', self.view_cb)
+
+        self.count = 0
     
+    def view_cb(self, request, response):
+        """
+        Service callback to view the point cloud
+        """
+        if request:
+            self.get_logger().info('Viewing images')
+            for n in range(len(self.left_images)):
+                cv2.imwrite('L{}.jpg'.format(n), self.left_images[n])
+                cv2.imwrite('R{}.jpg'.format(n), self.right_images[n])
+        return response
+
     def stereo_images_callback(self, left_image, right_image):
         """
         Callback function for the stereo images subscriber
         """
+        self.get_logger().info('Images callback received - {}'.format(self.count))
+
         if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
-            left_images = cv2.cvtColor(cv_bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
-            right_images = cv2.cvtColor(cv_bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
+            left_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
+            right_images = cv2.cvtColor(self.bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
         else:
-            left_images = cv_bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
-            right_images = cv_bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
+            left_images = self.bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
+            right_images = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
     
         self.left_images.append(left_images)
         self.right_images.append(right_images)
-        if len(self.left_images) >= self.num_images and len(self.right_images) >= self.num_images:
-            self.correlation_process();
+        self.count +=1
+        if self.count >= self.num_images:
+            # self.correlation_process();
+            self.get_logger().info('Images received')
+            self.count = 0
 
     def get_images_cb(self, request, response):
         """
@@ -114,33 +138,34 @@ class InverseTriangulationNode(Node):
             self.motor_angle_pub.publish(float_msg)
         return response
 
-    def camera_info_left_cb(self, msg):
-        """
-        Callback function for the left camera info subscriber
-        """
-        # Extract intrinsic parameters
-        self.Zscan.camera_params['left']['kk'] = np.array(msg.k).reshape(3, 3)
-        self.Zscan.camera_params['left']['kc'] = np.array(msg.d).reshape(5, 1)
+    # def camera_info_left_cb(self, msg):
+    #     """
+    #     Callback function for the left camera info subscriber
+    #     """
+    #     self.get_logger().info('Camera info left callback')
+    #     # Extract intrinsic parameters
+    #     self.Zscan.camera_params['left']['kk'] = np.array(msg.k).reshape(3, 3)
+    #     self.Zscan.camera_params['left']['kc'] = np.array(msg.d).reshape(5, 1)
 
-        # Transform projection to rotation and translation vectors
-        self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
-        self.Zscan.camera_params['left']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
+    #     # Transform projection to rotation and translation vectors
+    #     self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
+    #     self.Zscan.camera_params['left']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
 
-    def camera_info_right_cb(self, msg):
-        """
-        Callback function for the right camera info subscriber
-        """
-
-        # Extract intrinsic parameters
-        self.Zscan.camera_params['right']['kk'] = np.array(msg.k).reshape(3, 3)
-        self.Zscan.camera_params['right']['kc'] = np.array(msg.d).reshape(5, 1)
+    # def camera_info_right_cb(self, msg):
+    #     """
+    #     Callback function for the right camera info subscriber
+    #     """
+    #     self.get_logger().info('Camera info right callback')
+    #     # Extract intrinsic parameters
+    #     self.Zscan.camera_params['right']['kk'] = np.array(msg.k).reshape(3, 3)
+    #     self.Zscan.camera_params['right']['kc'] = np.array(msg.d).reshape(5, 1)
         
-        # Transform projection to rotation and translation vectors
-        self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
-        self.Zscan.camera_params['right']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
+    #     # Transform projection to rotation and translation vectors
+    #     self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
+    #     self.Zscan.camera_params['right']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
 
-        self.Zscan.camera_params['stereo']['R'] = np.array(msg.p).reshape(3, 4)[:3, :3]
-        self.Zscan.camera_params['stereo']['T'] = np.array(msg.p).reshape(3, 4)[:, 3]
+    #     self.Zscan.camera_params['stereo']['R'] = np.array(msg.p).reshape(3, 4)[:3, :3]
+    #     self.Zscan.camera_params['stereo']['T'] = np.array(msg.p).reshape(3, 4)[:, 3]
 
     def spatial_correl_process(self):
         """
