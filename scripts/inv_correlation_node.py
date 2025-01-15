@@ -99,6 +99,8 @@ class InverseTriangulationNode(Node):
         """
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         if request:
+            self.count = 0
+            self.left_images, self.right_images = [], []
             float_msg = Float32()
             float_msg.data = 400.0  # Example value
             self.motor_angle_pub.publish(float_msg)
