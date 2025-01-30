@@ -13,16 +13,6 @@ def generate_launch_description():
                 description='Namespace'
             ),
             DeclareLaunchArgument(
-                'left_camera_info',
-                default_value='/SM3/left/camera_info',
-                description='Left camera info topic'
-            ),
-            DeclareLaunchArgument(
-                'right_camera_info',
-                default_value='/SM3/right/camera_info',
-                description='Right camera info topic'
-            ),
-            DeclareLaunchArgument(
                 'left_image',
                 default_value='/SM3/left/image_raw',
                 description='Left camera info topic'
@@ -64,8 +54,6 @@ def generate_launch_description():
                      'yaml_path': LaunchConfiguration('yaml_path')}
                 ],
                 remappings=[
-                    ('left/camera_info', LaunchConfiguration('left_camera_info')),
-                    ('right/camera_info', LaunchConfiguration('right_camera_info')),
                     ('left/image', LaunchConfiguration('left_image')),
                     ('right/image', LaunchConfiguration('right_image')),
                     ('point_cloud', LaunchConfiguration('point_cloud')),

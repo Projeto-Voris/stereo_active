@@ -42,8 +42,12 @@ public:
                 throw std::runtime_error("Failed to get GPIO line");
             }
             if (pin == 85 || pin == 144){
-                if(pin == 85){ laser_line = line; }
-                else{ trigger_line = line; }
+                if(pin == 144){ laser_line = line; 
+                // int ret_la = gpiod_line_request_output(laser_line, "laser", 0);
+                } // 144 = PAC.06 = GPIO09
+                else{ trigger_line = line; 
+                // int ret_tr = gpiod_line_request_output(trigger_line, "trigger", 0);
+                } // 85 = PN.01 = GPIO09
             }
             else{ gpio_lines_.push_back(line); }
 
@@ -165,11 +169,13 @@ private:
                  const std_srvs::srv::SetBool::Response::SharedPtr response){
         if (request->data){
             gpiod_line_set_value(laser_line, 1);
+            RCLCPP_INFO(this->get_logger(), "Laser ON: %d", gpiod_line_get_value(laser_line));
             response->message = "Laser ON";
             response->success = true;
         }
         else if(!request->data){
             gpiod_line_set_value(laser_line, 0);
+            RCLCPP_INFO(this->get_logger(), "Laser OFF: %d", gpiod_line_get_value(laser_line));
             response->message = "Laser OFF";
             response->success = true;
         }

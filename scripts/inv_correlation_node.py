@@ -54,7 +54,7 @@ class InverseTriangulationNode(Node):
         self.callback_group_trigger_client = MutuallyExclusiveCallbackGroup()
         self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
-        self.srv = self.create_service(Trigger, 'get_images', self.get_images_cb, callback_group=self.callback_group_srv)
+        self.srv = self.create_service(Trigger, 'get_images', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
         self.view_srv = self.create_service(Trigger, 'view', self.view_cb)
@@ -68,8 +68,8 @@ class InverseTriangulationNode(Node):
         if request:
             self.get_logger().info('Viewing images')
             for n in range(len(self.left_images)):
-                cv2.imwrite('L{}.jpg'.format(n), self.left_images[n])
-                cv2.imwrite('R{}.jpg'.format(n), self.right_images[n])
+                cv2.imwrite('L{}.png'.format(n), self.left_images[n])
+                cv2.imwrite('R{}.png'.format(n), self.right_images[n])
         return response
 
     def stereo_images_callback(self, left_image, right_image):
@@ -92,8 +92,10 @@ class InverseTriangulationNode(Node):
             # self.correlation_process();
             self.get_logger().info('Images received')
             self.count = 0
+            self.get_logger().info('Calling spatial correlation')
+            self.spatial_correl_process()
 
-    def get_images_cb(self, request, response):
+    def get_images_srv(self, request, response):
         """
         Service callback to get stereo images
         """
@@ -140,52 +142,30 @@ class InverseTriangulationNode(Node):
             self.motor_angle_pub.publish(float_msg)
         return response
 
-    # def camera_info_left_cb(self, msg):
-    #     """
-    #     Callback function for the left camera info subscriber
-    #     """
-    #     self.get_logger().info('Camera info left callback')
-    #     # Extract intrinsic parameters
-    #     self.Zscan.camera_params['left']['kk'] = np.array(msg.k).reshape(3, 3)
-    #     self.Zscan.camera_params['left']['kc'] = np.array(msg.d).reshape(5, 1)
-
-    #     # Transform projection to rotation and translation vectors
-    #     self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
-    #     self.Zscan.camera_params['left']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
-
-    # def camera_info_right_cb(self, msg):
-    #     """
-    #     Callback function for the right camera info subscriber
-    #     """
-    #     self.get_logger().info('Camera info right callback')
-    #     # Extract intrinsic parameters
-    #     self.Zscan.camera_params['right']['kk'] = np.array(msg.k).reshape(3, 3)
-    #     self.Zscan.camera_params['right']['kc'] = np.array(msg.d).reshape(5, 1)
-        
-    #     # Transform projection to rotation and translation vectors
-    #     self.Zscan.camera_params['left']['r'] = np.array(msg.r).reshape(3, 3)
-    #     self.Zscan.camera_params['right']['t'] = np.array(msg.p).reshape(3, 4)[:, 3]
-
-    #     self.Zscan.camera_params['stereo']['R'] = np.array(msg.p).reshape(3, 4)[:3, :3]
-    #     self.Zscan.camera_params['stereo']['T'] = np.array(msg.p).reshape(3, 4)[:, 3]
-
     def spatial_correl_process(self):
         """
         Function to perform spatial correlation
         """
-        self.get_logger().info('Performing spatial correlation')
+        self.get_logger().info('Convert Images')
         Zscan.convert_images(self.left_images, self.right_images)
 
+        self.get_logger().info('Construct 3D points')
         points_3d = Zscan.points3d(x_lim=(-300, 350), y_lim=(-400, 400), z_lim=(-800, 400), xy_step=15, z_step=2,
                                    visualize=False)
-
+        self.get_logger().info('Spatial correlation')
         correl_points = Zscan.correlation_process(points_3d=points_3d, win_size=7, threshold=0.95)
-
+        if correl_points[:,0].size < 0:
+            self.get_logger().error('No points found')
+            return
+        self.get_logger().info('Second 3D points')
         xlim, ylim, zlim = [min(correl_points[:,0]), max(correl_points[:,0])], [min(correl_points[:,1]), max(correl_points[:,1])], [min(correl_points[:,2]), max(correl_points[:,2])]
         points_3d_2 = Zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, z_step=.5, xy_step=1, visualize=False)
 
         correl_points = Zscan.correlation_process(points_3d=points_3d_2, win_size=7, threshold=0.9)
-
+        if correl_points[:,0].size < 0:
+            self.get_logger().error('No points found')
+            return
+        self.get_logger().info('Publishing point cloud')
         if correl_points is not None:
             pcl_points = self.convert_to_pointcloud2(correl_points)
             self.pcl_publisher.publish(self.convert_to_pointcloud2(pcl_points))
