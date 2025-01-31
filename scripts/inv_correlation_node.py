@@ -68,8 +68,14 @@ class InverseTriangulationNode(Node):
         if request:
             self.get_logger().info('Viewing images')
             for n in range(len(self.left_images)):
-                cv2.imwrite('L{}.png'.format(n), self.left_images[n])
-                cv2.imwrite('R{}.png'.format(n), self.right_images[n])
+                cv2.imwrite('L{:02d}.png'.format(n + 1), self.left_images[n])
+                cv2.imwrite('R{:02d}.png'.format(n + 1), self.right_images[n])
+            if len(self.left_images) == self.num_images:
+                response.success = True
+                response.message = 'Images saved successfully'
+            else:
+                response.success = False
+                response.message = 'Images not saved'
         return response
 
     def stereo_images_callback(self, left_image, right_image):
@@ -93,7 +99,7 @@ class InverseTriangulationNode(Node):
             self.get_logger().info('Images received')
             self.count = 0
             self.get_logger().info('Calling spatial correlation')
-            self.spatial_correl_process()
+            # self.spatial_correl_process()
 
     def get_images_srv(self, request, response):
         """

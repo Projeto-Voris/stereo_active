@@ -42,21 +42,26 @@ public:
                 throw std::runtime_error("Failed to get GPIO line");
             }
             if (pin == 85 || pin == 144){
-                if(pin == 144){ laser_line = line; 
-                // int ret_la = gpiod_line_request_output(laser_line, "laser", 0);
+                if(pin == 144){ 
+                laser_line = line; 
+                    int ret_la = gpiod_line_request_output(laser_line, "laser", 0);
                 } // 144 = PAC.06 = GPIO09
-                else{ trigger_line = line; 
-                // int ret_tr = gpiod_line_request_output(trigger_line, "trigger", 0);
+                else{ 
+                    trigger_line = line; 
+                    int ret_tr = gpiod_line_request_output(trigger_line, "trigger", 0);
                 } // 85 = PN.01 = GPIO09
             }
-            else{ gpio_lines_.push_back(line); }
-
-            int ret = gpiod_line_request_output(line, "stepper_motor", 0);
-            if (ret < 0) {
-                RCLCPP_ERROR(this->get_logger(), "Failed to request line as output: %d", pin);
-                gpiod_chip_close(chip);
-                throw std::runtime_error("Failed to request line as output");
+            else{ 
+                gpio_lines_.push_back(line);
+                int ret = gpiod_line_request_output(line, "stepper_motor", 0);
+                if (ret < 0) {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to request line as output: %d", pin);
+                    gpiod_chip_close(chip);
+                    throw std::runtime_error("Failed to request line as output");
+                } 
             }
+
+
         }
 
         // Subscribe to the topic
@@ -72,12 +77,22 @@ public:
 
     ~GpioControl()
     {
+        RCLCPP_INFO(this->get_logger(), "Shutting down GPIO control node");
         keep_rotating_ = false;
         if (rotation_thread_.joinable()) {
             rotation_thread_.join();
         }
         for (auto line : gpio_lines_) {
+            gpiod_line_set_value(line, 0); // Set line to 0 before releasing
             gpiod_line_release(line);
+        }
+        if (laser_line) {
+            gpiod_line_set_value(laser_line, 0); // Set laser line to 0 before releasing
+            gpiod_line_release(laser_line);
+        }
+        if (trigger_line) {
+            gpiod_line_set_value(trigger_line, 0); // Set trigger line to 0 before releasing
+            gpiod_line_release(trigger_line);
         }
         gpiod_chip_close(chip);
     }
