@@ -65,7 +65,7 @@ class InverseTriangulation:
         # Read all images using list comprehension
         images = [cv2.imread(os.path.join(path, str(img_name)), cv2.IMREAD_GRAYSCALE)
                     for img_name in images_list[0:n_imgs]]
-        images = np.stack(images, axis=-1).astype(np.uint8)  # Convert to uint8
+        # images = np.stack(images, axis=-1).astype(np.uint8)  # Convert to uint8
                             
         return images
 
@@ -520,9 +520,8 @@ class InverseTriangulation:
         spatial_max = cp.nanmax(reshaped_corr, axis=1)
         spatial_id = cp.nanargmax(reshaped_corr, axis=1) + cp.arange(reshaped_corr.shape[0]) * self.z_scan_step
         std_corr = std_corr[spatial_id]
-        # plot_surf(uv_left[spatial_id], std_corr)
 
-        # Return as NumPy arrays
+        # Return as Cupy array
         return spatial_id, spatial_max, std_corr
 
     def correl_mask(self, std_correl, correl_max, std_thresh, correl_thresh):
