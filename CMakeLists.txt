@@ -68,11 +68,12 @@ install(DIRECTORY
         DESTINATION share/${PROJECT_NAME})
         
 install(DIRECTORY
-        scripts
+        scripts/
         DESTINATION lib/${PROJECT_NAME})
 
 install(PROGRAMS
         scripts/inv_correlation_node.py
+        scripts/inv_correl_read.py
         DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)

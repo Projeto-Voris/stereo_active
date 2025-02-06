@@ -4,6 +4,8 @@ import yaml
 import matplotlib.pyplot as plt
 import time
 import gc
+import cv2
+import os
 
 
 class InverseTriangulation:
@@ -50,7 +52,7 @@ class InverseTriangulation:
         self.camera_params['stereo']['R'] = np.array(params['R'], dtype=np.float64)
         self.camera_params['stereo']['T'] = np.array(params['T'], dtype=np.float64)
 
-    def read_images(self, path, images_list, CLAHE=False):
+    def read_images(self, path, images_list, n_imgs, CLAHE=False):
         """
         Read all images from the specified path and stack them into a single array.
         Parameters:
@@ -61,30 +63,26 @@ class InverseTriangulation:
         """
 
         # Read all images using list comprehension
-        if CLAHE:
-            clahe = cv2.createCLAHE(clipLimit=11.0, tileGridSize=(11, 11))
-            images = [clahe.apply(cv2.imread(os.path.join(path, str(img_name)), cv2.IMREAD_GRAYSCALE))
-                    for img_name in images_list]
-        else:
-            images = [cv2.imread(os.path.join(path, str(img_name)), cv2.IMREAD_GRAYSCALE)
-                    for img_name in images_list]
-
-        # Convert list of images to a single 3D NumPy array
+        images = [cv2.imread(os.path.join(path, str(img_name)), cv2.IMREAD_GRAYSCALE)
+                    for img_name in images_list[0:n_imgs]]
         images = np.stack(images, axis=-1).astype(np.uint8)  # Convert to uint8
+                            
+        return images
 
-        if len(left_imgs) != len(right_imgs):
-            raise Exception("Number of images do not match")
-
-        self.left_images = cp.asarray(left_imgs)
-        self.right_images = cp.asarray(right_imgs)
-
-    def convert_images(self, left_imgs, right_imgs):
+    def convert_images(self, left_imgs, right_imgs, apply_clahe=False):
         """
         Convert images to CuPy arrays for GPU processing.
+        Optionally apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
         """
+        if apply_clahe:
+            clahe = cv2.createCLAHE(clipLimit=11.0, tileGridSize=(21, 21))
+            left_imgs = [clahe.apply(img) for img in left_imgs]
+            right_imgs = [clahe.apply(img) for img in right_imgs]
+
 
         self.left_images = cp.asarray(np.stack(left_imgs, axis=-1)).astype(cp.uint8)
         self.right_images = cp.asarray(np.stack(right_imgs, axis=-1)).astype(cp.uint8)
+        return True
 
     def points3d(self, x_lim=(-5, 5), y_lim=(-5, 5), z_lim=(0, 5), xy_step=1.0, z_step=1.0, visualize=False):
         """
@@ -560,40 +558,16 @@ class InverseTriangulation:
         Returns:
             correl_points: (X*Y, 3) list from bests correlation points.
         """
-        t0 = time.time()
         uv_left = self.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
         uv_right = self.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
 
-        print('Transform points to image: {:.2f} s'.format(time.time() - t0))
-        # t1 = time.time()
-        # inter_left, std_left = self.bi_interpolation(self.left_images, uv_left)
-        # inter_right, std_right = self.bi_interpolation(self.right_images, uv_right)
-        #
-        # print('Bi-Interpolation Time: {:.2f} s'.format(time.time() - t1))
-        t2 = time.time()
+       
         spatial_id, spatial_max, std_corr = self.spatial_correl(window_size=win_size, uv_left=uv_left,
                                                                 uv_right=uv_right)
-        print('Spatial correlation time: {:.2f} s'.format(time.time() - t2))
-        # t3 = time.time()
-        #
-        # ho, hmax, imax, ho_zstep = self.temp_cross_correlation(left_Igray=inter_left, right_Igray=inter_right)
-        #
-        # print('Temporal cross correlation time: {:.2f} s'.format(time.time() - t3))
-
-        # temp_correl_pt = points_3d[np.asarray(imax[hmax > 0.95]).astype(np.int32)]
         correl_mask = self.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=threshold,
                                        std_thresh=60)
         space_temp_correl_pt = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
-        print('Correlation process: {:.2f} s'.format(time.time() - t0))
-
-        if save_points:
-            self.save_points(space_temp_correl_pt, filename='./sm3_tubo.csv')
-        if visualize:
-            self.plot_3d_points(space_temp_correl_pt[:, 0], space_temp_correl_pt[:, 1], space_temp_correl_pt[:, 2],
-                                color=np.asarray(cp.asnumpy(spatial_max[correl_mask])),
-                                title="Temporal x Spatial correlation result"
-                                      "\n {} imgs"
-                                      "\n{} win size".format(self.right_images.shape[2], win_size))
+       
         del uv_left, uv_right, spatial_id, spatial_max, std_corr
         return space_temp_correl_pt
