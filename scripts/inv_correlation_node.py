@@ -184,7 +184,7 @@ class InverseTriangulationNode(Node):
         uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
         uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
         spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=15, uv_left=uv_left, uv_right=uv_right)
-        correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.75, std_thresh=20)
+        correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.75, std_thresh=15)
         correl_points = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
         self.get_logger().info('First 3D points size: {}'.format(correl_points.size))
@@ -208,7 +208,7 @@ class InverseTriangulationNode(Node):
         uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
         uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
         spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=21, uv_left=uv_left, uv_right=uv_right)
-        correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.9, std_thresh=20)
+        correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.8, std_thresh=15)
         correl_points = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
 
@@ -223,7 +223,7 @@ class InverseTriangulationNode(Node):
         # correl_points = self.Zscan.filter_points_by_depth(correl_points, depth_threshold=0.1, std_ratio=1)
         self.get_logger().info('Type of correl_points: {}'.format(type(correl_points)))
 
-        measured_pts_camera = (self.Zscan.camera_params['left']['r'] @ (correl_points.T - self.Zscan.camera_params['left']['t'][:, None])).T
+        measured_pts_camera = (self.Zscan.camera_params['left']['r'] @ (correl_points.T + self.Zscan.camera_params['left']['t'][:, None])).T
 
         if correl_points is not None:
             pcl_points = self.convert_to_pointcloud2(measured_pts_camera)
