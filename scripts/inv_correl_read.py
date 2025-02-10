@@ -22,8 +22,8 @@ class CorrelNode(Node):
         self.get_logger().info('Correl Node from stored images started.')
 
         self.declare_parameter('num_images', 10)
-        self.declare_parameter('yaml_path', '/home/daniel/ros2_ws/src/stereo_active/config/SM3.yaml')
-        self.declare_parameter('imgs_path', '/home/daniel/Pictures/20250205')
+        self.declare_parameter('yaml_path', '/home/jetson/ros2_ws/src/stereo_active/config/SM3.yaml')
+        self.declare_parameter('imgs_path', '/home/jetson/Pictures/20250205')
 
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
@@ -48,9 +48,10 @@ class CorrelNode(Node):
 
     def timer_callback(self):
         if self.perform_correl:
-            self.get_logger().info('Timer callback triggered')
+            t0 = time.time()
+            self.get_logger().info('Correlation process started {:.2f}'.format(t0))
             self.spatial_correl_process()
-            self.get_logger().info('Correlation process finished')
+            self.get_logger().info('Correlation process finished {:.2f}'.format(time.time()-t0))
             self.perform_correl = False
 
     def view_images_srv(self, request, response):
@@ -108,32 +109,26 @@ class CorrelNode(Node):
         """
         Function to perform spatial correlation
         """
-        self.get_logger().info('First 3D points')
+        # self.get_logger().info('First 3D points')
 
-        self.get_logger().info('Construct 3D points')
+        # self.get_logger().info('Construct 3D points')
         points_3d = self.Zscan.points3d(x_lim=(-400, 400), y_lim=(-400, 400), z_lim=(-500, 500), xy_step=10, z_step=1,
                                    visualize=False) 
         self.get_logger().info('3D meshgrid pts: {} mi '.format(points_3d.shape[0] / 1e6))
         # correl_points = self.Zscan.correlation_process(points_3d=points_3d, win_size=21, threshold=0.6)
         uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
         uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
-        # self.get_logger().info('UV points: {}'.format(uv_left.shape))
-       
-        spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=17, uv_left=uv_left, uv_right=uv_right)
-        # self.get_logger().info('Correl process')
-        correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.8, std_thresh=20)
-
-        # self.get_logger().info('Correl mask')
+        spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=11, uv_left=uv_left, uv_right=uv_right)
+        correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.75, std_thresh=20)
         correl_points = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
-        self.get_logger().info('Shape of correl_points: {}'.format(correl_points.shape))
         self.get_logger().info('First 3D points size: {}'.format(correl_points.size))
        
         del uv_left, uv_right, spatial_id, spatial_max, std_corr, points_3d
         if correl_points.size <= 0:
             self.get_logger().error('No points found')
             return
-        self.get_logger().info('Second 3D points')
+        # self.get_logger().info('Second 3D points')
         
         xlim = [min(correl_points[:,0]), max(correl_points[:,0])] 
         ylim = [min(correl_points[:,1]), max(correl_points[:,1])]
@@ -142,24 +137,16 @@ class CorrelNode(Node):
 
         del correl_points
 
-        points_3d = self.Zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, z_step=.1, xy_step=1, visualize=False)
+        points_3d = self.Zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, z_step=.1, xy_step=0.5, visualize=False)
         self.get_logger().info('3D meshgrid pts: {} mi '.format(points_3d.shape[0] / 1e6))
-
 
         uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
         uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
-        # self.get_logger().info('UV points: {}'.format(uv_left.shape))  
-
-        spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=15, uv_left=uv_left, uv_right=uv_right)
-        # self.get_logger().info('Correl process')
+        spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=17, uv_left=uv_left, uv_right=uv_right)
         correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=0.8, std_thresh=20)
-
-        # self.get_logger().info('Correl mask')
         correl_points = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
-        self.get_logger().info('Shape of correl_points: {}'.format(correl_points.shape))
 
-        self.get_logger().info('Second 3D points size: {}'.format(correl_points.size))
        
         del uv_left, uv_right, spatial_id, spatial_max, std_corr
 
@@ -168,6 +155,8 @@ class CorrelNode(Node):
             return
 
         self.get_logger().info('Publishing point cloud')
+        correl_points = self.Zscan.filter_points_by_depth(correl_points, depth_threshold=0.1, std_ratio=1)
+        self.get_logger().info('Type of correl_points: {}'.format(type(correl_points)))
 
         if correl_points is not None:
             pcl_points = self.convert_to_pointcloud2(correl_points)
@@ -177,6 +166,8 @@ class CorrelNode(Node):
             self.get_logger().info('Point cloud published')
 
     def convert_to_pointcloud2(self, points, frame_id="left_camera"):
+        # Transform from camera from object to camera's coordinate system
+
         # Converte para mensagem PointCloud2
         header = Header()
         header.stamp = self.get_clock().now().to_msg()

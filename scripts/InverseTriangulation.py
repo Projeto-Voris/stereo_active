@@ -6,7 +6,7 @@ import time
 import gc
 import cv2
 import os
-
+import open3d as o3d
 
 class InverseTriangulation:
     def __init__(self, yaml_file):
@@ -570,3 +570,52 @@ class InverseTriangulation:
        
         del uv_left, uv_right, spatial_id, spatial_max, std_corr
         return space_temp_correl_pt
+
+    def filter_points_by_depth(self, points, depth_threshold=0.05, octree_depth=30, std_ratio=0.1, nb_neighbors=300):
+            """
+            Filtra pontos de uma nuvem de pontos 3D com base na profundidade média dentro de blocos da Octree.
+
+            Parameters:
+                points (cp.ndarray or np.ndarray): Pontos da nuvem de pontos.
+                depth_threshold (float): Tolerância para variação em relação à profundidade média.
+                octree_depth (int): Profundidade máxima da Octree.
+                std_ratio (float): Razão de desvio padrão para o filtro estatístico.
+                nb_neighbors (int): Número de vizinhos para considerar no filtro estatístico.
+
+            Returns:
+                filtered_pcd (open3d.geometry.PointCloud): Nuvem de pontos filtrada.
+            """
+
+            # Converte para NumPy, se necessário
+            if isinstance(points, cp.ndarray):
+                points = cp.asnumpy(points)
+
+            # Cria a PointCloud no Open3D
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points)
+
+            # Cria uma Octree para dividir a nuvem em blocos
+            octree = o3d.geometry.Octree(max_depth=octree_depth)
+            octree.convert_from_point_cloud(pcd, size_expand=0.01)
+
+            filtered_points = []
+
+            # Função para processar os nós da Octree
+            def process_leaf(node, node_info):
+                if isinstance(node, o3d.geometry.OctreeLeafNode):
+                    points_in_leaf = np.asarray([pcd.points[idx] for idx in node.indices])
+                    mean_depth = np.mean(points_in_leaf[:, 2])
+                    mask = np.abs(points_in_leaf[:, 2] - mean_depth) <= depth_threshold
+                    filtered_points.extend(points_in_leaf[mask])
+
+            # Percorre a Octree para filtrar os pontos
+            octree.traverse(process_leaf)
+
+            # Converte pontos filtrados para Open3D
+            filtered_pcd = o3d.geometry.PointCloud()
+            filtered_pcd.points = o3d.utility.Vector3dVector(np.array(filtered_points))
+
+            # Filtro estatístico para remover outliers
+            filtered_pcd, _ = filtered_pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+
+            return np.asarray(filtered_pcd.points)
