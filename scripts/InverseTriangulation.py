@@ -619,3 +619,12 @@ class InverseTriangulation:
             filtered_pcd, _ = filtered_pcd.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
 
             return np.asarray(filtered_pcd.points)
+    
+    def save_points(self, points, filename, delimiter=','):
+        """
+        Save 3D points to a text file.
+        Parameters:
+            points: (N, 3) array of 3D points.
+        """
+        np.savetxt(filename, points, fmt='%.6f', delimiter=delimiter)
+        return True
