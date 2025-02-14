@@ -75,7 +75,7 @@ class InverseTriangulation:
         Optionally apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
         """
         if apply_clahe:
-            clahe = cv2.createCLAHE(clipLimit=11.0, tileGridSize=(21, 21))
+            clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(11, 11))
             left_imgs = [clahe.apply(img) for img in left_imgs]
             right_imgs = [clahe.apply(img) for img in right_imgs]
 
@@ -101,6 +101,31 @@ class InverseTriangulation:
         y_lin = np.arange(y_lim[0], y_lim[1], xy_step)
         z_lin = np.arange(z_lim[0], z_lim[1], z_step)
 
+        mg1, mg2, mg3 = np.meshgrid(x_lin, y_lin, z_lin, indexing='ij')
+
+        c_points = np.stack([mg1, mg2, mg3], axis=-1).reshape(-1, 3)
+
+        if visualize:
+            self.plot_3d_points(x=c_points[:, 0], y=c_points[:, 1], z=c_points[:, 2])
+
+        self.num_points = c_points.shape[0]
+        self.z_scan_step = np.unique(c_points[:, 2]).shape[0]
+
+        return c_points.astype(np.float16)
+    
+    def point3d_split(self, x_lin, y_lin, z_lin, visualize=False):
+        """
+            Create a 3D space of combination from linear arrays of X Y Z
+            Parameters:
+                x_lim: Begin and end of linear space of X
+                y_lim: Begin and end of linear space of Y
+                z_lim: Begin and end of linear space of Z
+                xy_step: Step size between X and Y
+                z_step: Step size between Z and X
+                visualize: Visualize the 3D space
+            Returns:
+                cube_points: combination of X Y and Z
+            """
         mg1, mg2, mg3 = np.meshgrid(x_lin, y_lin, z_lin, indexing='ij')
 
         c_points = np.stack([mg1, mg2, mg3], axis=-1).reshape(-1, 3)
@@ -424,7 +449,7 @@ class InverseTriangulation:
 
         return cp.asnumpy(ho), cp.asnumpy(hmax), cp.asnumpy(Imax), cp.asnumpy(ho_ztep)
 
-    def spatial_correl(self, uv_left, uv_right, window_size=3):
+    def spatial_correl(self, uv_left, uv_right, window_size=3, save_points=False):
         """
         Compute spatial correlation for patches around specified points across all images.
 
@@ -520,6 +545,11 @@ class InverseTriangulation:
         spatial_max = cp.nanmax(reshaped_corr, axis=1)
         spatial_id = cp.nanargmax(reshaped_corr, axis=1) + cp.arange(reshaped_corr.shape[0]) * self.z_scan_step
         std_corr = std_corr[spatial_id]
+
+        # Save reshaped correlation as numpy vector to a text file
+        if save_points:
+            reshaped_corr_cpu = cp.asnumpy(reshaped_corr)
+            np.savetxt('reshaped_corr.txt', reshaped_corr_cpu.flatten(), fmt='%.6f')
 
         # Return as Cupy array
         return spatial_id, spatial_max, std_corr
