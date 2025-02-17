@@ -25,7 +25,9 @@ class InverseTriangulationNode(Node):
 
         self.declare_parameter('num_images', 10)
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
-        self.declare_parameter('threshold1', 0.7)
+        self.declare_parameter('tile', 5)
+        self.declare_parameter('climp', 2.0)
+        self.declare_parameter('threshold1', 0.9)
         self.declare_parameter('window_size1', 21)
         self.declare_parameter('std_threshold1', 5)
         self.declare_parameter('threshold2', 0.7)
@@ -58,7 +60,7 @@ class InverseTriangulationNode(Node):
                                                     queue_size=10, slop=0.05)
         self.ts.registerCallback(self.stereo_images_callback)
 
-        self.pcl_publisher = self.create_publisher(PointCloud2, 'point_cloud', 10)
+        self.pcl_publisher = self.create_publisher(PointCloud2, 'pointcloud', 10)
 
         # Create mutually exclusive callback groups
         self.callback_group_srv = MutuallyExclusiveCallbackGroup()
@@ -77,9 +79,12 @@ class InverseTriangulationNode(Node):
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
     def timer_callback(self):
+        tile = self.get_parameter('tile').get_parameter_value().integer_value
+        climp = self.get_parameter('climp').get_parameter_value().double_value
+
         if self.perform_correl:
             t0 = time.time()
-            self.Zscan.convert_images(left_imgs=self.left_images, right_imgs=self.right_images, apply_clahe=True)
+            self.Zscan.convert_images(left_imgs=self.left_images, right_imgs=self.right_images, apply_clahe=True, tile=tile, climp=climp)
             self.get_logger().info('Images converted: {:.2f} s'.format(time.time()-t0))
             self.spatial_correl_process()
             self.get_logger().info('Correlation process finished: {:.2f} s'.format(time.time()-t0))
@@ -219,7 +224,7 @@ class InverseTriangulationNode(Node):
             zlim[1] = zlim[0] + 1
             zlim[0] = zlim[0] - 1
 
-        self.get_logger().info('Boundaries 3D points: {}'.format([xlim, ylim, zlim]))
+        self.get_logger().info('Boundaries of first 3D points: {}'.format([xlim, ylim, zlim]))
 
         
         if abs(zlim[1] - zlim[0]) < 20:
@@ -239,17 +244,19 @@ class InverseTriangulationNode(Node):
 
         else:
             self.get_logger().info('Z limits are too far apart')
+
+
             split_pts = np.array_split(correl_points, 10, axis=0)
             # del correl_points
             x_lin_r = np.arange(xlim[0], xlim[1], 1)
             y_lin_r = np.arange(ylim[0], ylim[1], 1)
             
-            x_lin_split = np.array_split(x_lin_r, 6)
-            y_lin_split = np.array_split(y_lin_r, 4)
+            x_lin_split = np.array_split(x_lin_r, 3)
+            y_lin_split = np.array_split(y_lin_r, 3)
 
             scnd_pts = []
-            for x_sp in x_lin_split:
-                for y_sp in y_lin_split:
+            for i, x_sp in enumerate(x_lin_split):
+                for j, y_sp in enumerate(y_lin_split):
 
                     # Filter correl_points based on x_sp and y_sp
                     mask = (correl_points[:, 0] >= x_sp[0]) & (correl_points[:, 0] <= x_sp[-1]) & \
@@ -257,7 +264,7 @@ class InverseTriangulationNode(Node):
                     filtered_points = correl_points[mask]
 
                     if filtered_points.size == 0:
-                        self.get_logger().warning('No points found')
+                        self.get_logger().warning('No points found for {},{} split'.format(i,j))
                         continue
 
                     zlim_split = [min(filtered_points[:, 2]), max(filtered_points[:, 2])]
@@ -265,8 +272,14 @@ class InverseTriangulationNode(Node):
 
                     xlim = [min(x_sp), max(x_sp)] 
                     ylim = [min(y_sp), max(y_sp)]
-                    zlim = [min(z_lin_r), max(z_lin_r)]
-                    self.get_logger().info('Boundaries 3D points: {}'.format([xlim, ylim, zlim]))
+
+                    if z_lin_r.size > 0:
+                        zlim = [min(z_lin_r), max(z_lin_r)]
+                    else:
+                        self.get_logger().warning('z_lin_r is empty for {},{} split, skipping this segment'.format(i,j))
+                        continue
+
+                    self.get_logger().info('Boundaries - {},{} 3D points: {}'.format(i, j, [xlim, ylim, zlim]))
 
                     points_3d = self.Zscan.point3d_split(x_lin=x_sp, y_lin=y_sp, z_lin=z_lin_r, visualize=False)
                     self.get_logger().info('3D meshgrid pts: {} mi '.format(points_3d.shape[0] / 1e6))
@@ -304,7 +317,7 @@ class InverseTriangulationNode(Node):
             self.get_logger().info('Point cloud published')
 
 
-    def convert_to_pointcloud2(self, points, frame_id="left_camera_link"):
+    def convert_to_pointcloud2(self, points, frame_id="SM3/left_camera_link"):
         # Converte para mensagem PointCloud2
         header = Header()
         header.frame_id = frame_id

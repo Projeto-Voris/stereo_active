@@ -69,13 +69,13 @@ class InverseTriangulation:
                             
         return images
 
-    def convert_images(self, left_imgs, right_imgs, apply_clahe=False):
+    def convert_images(self, left_imgs, right_imgs, apply_clahe=False, tile=11, climp=5.0):
         """
         Convert images to CuPy arrays for GPU processing.
         Optionally apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
         """
         if apply_clahe:
-            clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(11, 11))
+            clahe = cv2.createCLAHE(clipLimit=climp, tileGridSize=(tile, tile))
             left_imgs = [clahe.apply(img) for img in left_imgs]
             right_imgs = [clahe.apply(img) for img in right_imgs]
 
