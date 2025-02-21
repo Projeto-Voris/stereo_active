@@ -449,7 +449,7 @@ class InverseTriangulation:
 
         return cp.asnumpy(ho), cp.asnumpy(hmax), cp.asnumpy(Imax), cp.asnumpy(ho_ztep)
 
-    def spatial_correl(self, uv_left, uv_right, window_size=3, save_points=False):
+    def spatial_correl(self, uv_left, uv_right, window_size=3, save_points=False, name_file='reshaped_corr'):
         """
         Compute spatial correlation for patches around specified points across all images.
 
@@ -549,7 +549,7 @@ class InverseTriangulation:
         # Save reshaped correlation as numpy vector to a text file
         if save_points:
             reshaped_corr_cpu = cp.asnumpy(reshaped_corr)
-            np.savetxt('reshaped_corr.txt', reshaped_corr_cpu.flatten(), fmt='%.6f')
+            np.savetxt('{}.txt'.format(name_file), reshaped_corr_cpu.flatten(), fmt='%.6f')
 
         # Return as Cupy array
         return spatial_id, spatial_max, std_corr
@@ -601,7 +601,7 @@ class InverseTriangulation:
         del uv_left, uv_right, spatial_id, spatial_max, std_corr
         return space_temp_correl_pt
 
-    def filter_points_by_depth(self, points, depth_threshold=0.05, octree_depth=30, std_ratio=0.1, nb_neighbors=300):
+    def filter_points_by_depth(self, points, depth_threshold=0.05, octree_depth=30, std_ratio=0.1, nb_neighbors=100):
             """
             Filtra pontos de uma nuvem de pontos 3D com base na profundidade média dentro de blocos da Octree.
 
