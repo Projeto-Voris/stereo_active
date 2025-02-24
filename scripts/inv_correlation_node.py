@@ -23,12 +23,15 @@ class InverseTriangulationNode(Node):
         super().__init__('inverse_triangulation_node')
         self.get_logger().info('InverseTriangulationNode has been started.')
 
-        self.declare_parameter('num_images', 10)
+        # Parameters declaration
+        self.declare_parameter('num_images', 15)
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
-        self.declare_parameter('threshold1', 0.7)
+        self.declare_parameter('tile', 11)
+        self.declare_parameter('climp', 15.0)
+        self.declare_parameter('threshold1', 0.5)
         self.declare_parameter('window_size1', 21)
         self.declare_parameter('std_threshold1', 5)
-        self.declare_parameter('threshold2', 0.7)
+        self.declare_parameter('threshold2', 0.6)
         self.declare_parameter('window_size2', 25)
         self.declare_parameter('std_threshold2', 5)
         self.declare_parameter('save_correl', False)
@@ -38,33 +41,33 @@ class InverseTriangulationNode(Node):
         
         self.get_logger().info(f'Number of images to be captured: {self.num_images}')
 
-
+        # Initialize the InverseTriangulation class
         self.Zscan = InverseTriangulation(yaml_file=self.yaml_file)
         self.bridge = CvBridge()
 
         self.left_images = []
         self.right_images = []
 
-        # self.create_subscription(CameraInfo, 'left/camera_info', self.camera_info_left_cb, 1)
-        # self.create_subscription(CameraInfo, 'right/camera_info', self.camera_info_right_cb, 1)
-
+        # Initialize the subscribers
         self.left_image_sub = message_filters.Subscriber(self, Image, 'left/image')
         self.right_image_sub = message_filters.Subscriber(self, Image, 'right/image')
-
+        # Initialize the publisher
         self.motor_angle_pub = self.create_publisher(Float32, 'motor/angle', 10)
+        self.pcl_publisher = self.create_publisher(PointCloud2, 'pointcloud', 10)
 
 
+        # Synchronize the stereo images
         self.ts = message_filters.ApproximateTimeSynchronizer([self.left_image_sub, self.right_image_sub],
                                                     queue_size=10, slop=0.05)
         self.ts.registerCallback(self.stereo_images_callback)
 
-        self.pcl_publisher = self.create_publisher(PointCloud2, 'point_cloud', 10)
 
         # Create mutually exclusive callback groups
         self.callback_group_srv = MutuallyExclusiveCallbackGroup()
         self.callback_group_trigger_client = MutuallyExclusiveCallbackGroup()
         self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
+        # Create the service from node
         self.srv = self.create_service(Trigger, 'get_images', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
@@ -72,14 +75,19 @@ class InverseTriangulationNode(Node):
 
         self.count = 1
         self.perform_correl = False
+        self.service_requet = False
 
+        # Timer to perform the correlation process
         self.timer_period = 1.0  # seconds
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
     def timer_callback(self):
-        if self.perform_correl:
+        tile = self.get_parameter('tile').get_parameter_value().integer_value
+        climp = self.get_parameter('climp').get_parameter_value().double_value
+
+        if self.perform_correl and self.num_images <= self.count:
             t0 = time.time()
-            self.Zscan.convert_images(left_imgs=self.left_images, right_imgs=self.right_images, apply_clahe=True)
+            self.Zscan.convert_images(left_imgs=self.left_images, right_imgs=self.right_images, apply_clahe=True, tile=tile, climp=climp)
             self.get_logger().info('Images converted: {:.2f} s'.format(time.time()-t0))
             self.spatial_correl_process()
             self.get_logger().info('Correlation process finished: {:.2f} s'.format(time.time()-t0))
@@ -117,20 +125,22 @@ class InverseTriangulationNode(Node):
 
         if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
             left_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
-            right_images = cv2.cvtColor(self.bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
+            right_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
         else:
-            left_images = self.bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
-            right_images = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
+            left_image = self.bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
+            right_image = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
     
-        self.left_images.append(left_images)
-        self.right_images.append(right_images)
-        self.count +=1
+        self.left_images.append(left_image)
+        self.right_images.append(right_image)
+        if self.service_requet:
+            self.count +=1
 
     def get_images_srv(self, request, response):
         """
         Service callback to get stereo images
         """
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
+        self.service_requet = True
         if request:
             self.count = 1
             self.left_images, self.right_images = [], []
@@ -155,10 +165,12 @@ class InverseTriangulationNode(Node):
                     rclpy.spin_until_future_complete(self, future)
                     if future.result() is not None:
                         # self.get_logger().info(f'Image {n+1} captured')
-                        time.sleep(0.150)
+                        # rclpy.spin_once(self)
+                        time.sleep(0.15)
                     else:
                         self.get_logger().error('Service call failed')
             # Call laser service to turn off
+            time.sleep(0.4)
             laser_request = SetBool.Request()
             laser_request.data = False  # Turn off the laser
             future_laser = self.laser_client.call_async(laser_request)
@@ -174,7 +186,7 @@ class InverseTriangulationNode(Node):
             self.motor_angle_pub.publish(float_msg)
                         # self.correlation_process();
 
-            self.get_logger().info('Calling spatial correlation')
+            # self.get_logger().info('Calling spatial correlation')
             self.perform_correl = True
         return response
 
@@ -198,16 +210,23 @@ class InverseTriangulationNode(Node):
         # correl_points = self.Zscan.correlation_process(points_3d=points_3d, win_size=21, threshold=0.6)
         uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
         uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
-        spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=win_size1, uv_left=uv_left, uv_right=uv_right, save_points=save_correl)
+        spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=win_size1, uv_left=uv_left, uv_right=uv_right, save_points=save_correl, name_file='reshaped_1pts')
         correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=thresh1, std_thresh=std_thresh1)
         correl_points = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
         self.get_logger().info('First 3D points size: {}'.format(correl_points.size))
         
         del uv_left, uv_right, spatial_id, spatial_max, std_corr, points_3d
-        if correl_points.size <= 0:
+
+        if correl_points is not None:
+            pcl_points = self.convert_to_pointcloud2(correl_points)
+            self.pcl_publisher.publish(pcl_points)
+
+            self.left_images, self.right_images = np.ndarray([]), np.ndarray([])
+            self.get_logger().info('Point cloud published points: {}'.format(correl_points.shape[0]))
+        else:
             self.get_logger().error('No points found')
-            return
+
         self.get_logger().info('Second 3D points')
         
         xlim = [min(correl_points[:,0]), max(correl_points[:,0])] 
@@ -219,18 +238,18 @@ class InverseTriangulationNode(Node):
             zlim[1] = zlim[0] + 1
             zlim[0] = zlim[0] - 1
 
-        self.get_logger().info('Boundaries 3D points: {}'.format([xlim, ylim, zlim]))
+        self.get_logger().info('Boundaries of first 3D points: {}'.format([xlim, ylim, zlim]))
 
         
-        if abs(zlim[1] - zlim[0]) < 20:
+        if abs(zlim[1] - zlim[0]) < 100:
             del correl_points
-            points_3d = self.Zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, z_step=.1, xy_step=1, visualize=False)
+            points_3d = self.Zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, z_step=.1, xy_step=2, visualize=False)
             self.get_logger().info('3D meshgrid pts: {} mi '.format(points_3d.shape[0] / 1e6))
 
 
             uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
             uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
-            spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=win_size2, uv_left=uv_left, uv_right=uv_right)
+            spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=win_size2, uv_left=uv_left, uv_right=uv_right, save_points=save_correl, name_file='reshaped_2pts')
             correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=thresh2, std_thresh=std_thresh2)
             correl_points = points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)]
 
@@ -239,34 +258,42 @@ class InverseTriangulationNode(Node):
 
         else:
             self.get_logger().info('Z limits are too far apart')
+
+
             split_pts = np.array_split(correl_points, 10, axis=0)
             # del correl_points
-            x_lin_r = np.arange(xlim[0], xlim[1], 1)
-            y_lin_r = np.arange(ylim[0], ylim[1], 1)
+            x_lin_r = np.arange(xlim[0], xlim[1], 2)
+            y_lin_r = np.arange(ylim[0], ylim[1], 2)
             
-            x_lin_split = np.array_split(x_lin_r, 6)
-            y_lin_split = np.array_split(y_lin_r, 4)
+            x_lin_split = np.array_split(x_lin_r, 3)
+            y_lin_split = np.array_split(y_lin_r, 3)
 
             scnd_pts = []
-            for x_sp in x_lin_split:
-                for y_sp in y_lin_split:
-
+            for i, x_sp in enumerate(x_lin_split):
+                for j, y_sp in enumerate(y_lin_split):
+                    t0 = time.time()
                     # Filter correl_points based on x_sp and y_sp
                     mask = (correl_points[:, 0] >= x_sp[0]) & (correl_points[:, 0] <= x_sp[-1]) & \
                         (correl_points[:, 1] >= y_sp[0]) & (correl_points[:, 1] <= y_sp[-1])
                     filtered_points = correl_points[mask]
 
                     if filtered_points.size == 0:
-                        self.get_logger().warning('No points found')
+                        self.get_logger().warning('No points found for {},{} split'.format(i,j))
                         continue
 
                     zlim_split = [min(filtered_points[:, 2]), max(filtered_points[:, 2])]
-                    z_lin_r = np.arange(zlim_split[0], round(zlim_split[1],1), 0.1)
+                    z_lin_r = np.arange(zlim_split[0], round(zlim_split[1],1), 0.5)
 
                     xlim = [min(x_sp), max(x_sp)] 
                     ylim = [min(y_sp), max(y_sp)]
-                    zlim = [min(z_lin_r), max(z_lin_r)]
-                    self.get_logger().info('Boundaries 3D points: {}'.format([xlim, ylim, zlim]))
+
+                    if z_lin_r.size > 0:
+                        zlim = [min(z_lin_r), max(z_lin_r)]
+                    else:
+                        self.get_logger().warning('z_lin_r is empty for {},{} split, skipping this segment'.format(i,j))
+                        continue
+
+                    self.get_logger().info('Boundaries - {},{} 3D points: {}'.format(i, j, [xlim, ylim, zlim]))
 
                     points_3d = self.Zscan.point3d_split(x_lin=x_sp, y_lin=y_sp, z_lin=z_lin_r, visualize=False)
                     self.get_logger().info('3D meshgrid pts: {} mi '.format(points_3d.shape[0] / 1e6))
@@ -274,11 +301,12 @@ class InverseTriangulationNode(Node):
 
                     uv_left = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='left')
                     uv_right = self.Zscan.transform_gcs2ccs(points_3d=points_3d, cam_name='right')
-                    spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=win_size2, uv_left=uv_left, uv_right=uv_right)
+                    spatial_id, spatial_max, std_corr = self.Zscan.spatial_correl(window_size=win_size2, uv_left=uv_left, uv_right=uv_right, save_points=save_correl, name_file='reshaped_2pts_{}_{}'.format(i,j))
                     correl_mask = self.Zscan.correl_mask(std_correl=std_corr, correl_max=spatial_max, correl_thresh=thresh2, std_thresh=std_thresh2)
                     scnd_pts.append(points_3d[np.asarray(cp.asnumpy(spatial_id[correl_mask])).astype(np.int32)])
 
                     del uv_left, uv_right, spatial_id, spatial_max, std_corr
+                    self.get_logger().info('Time for {},{} split: {:.2f} s'.format(i,j, time.time()-t0))
 
             correl_points = np.concatenate(scnd_pts, axis=0)
 
@@ -289,22 +317,27 @@ class InverseTriangulationNode(Node):
 
         self.Zscan.save_points(points=correl_points, filename='correl_i{}_{}_{}_{}.txt'.format(self.num_images, thresh2, win_size2, std_thresh2))
         self.get_logger().info('Publishing point cloud')
-        correl_points = self.Zscan.filter_points_by_depth(correl_points, depth_threshold=0.1, std_ratio=1)
+        correl_points = self.Zscan.filter_points_by_depth(correl_points, depth_threshold=0.1, std_ratio=0.1)
         self.get_logger().info('Type of correl_points: {}'.format(type(correl_points)))
 
         # measured_pts_camera = (-self.Zscan.camera_params['left']['r'] @ (correl_points.T - self.Zscan.camera_params['left']['t'][:, None])).T
-        measured_pts_camera = (np.eye(3) @ (correl_points.T + self.Zscan.camera_params['left']['t'][:, None])).T
         # measured_pts_camera = (np.eye(3) @ (correl_points.T + np.array([0, 0, self.Zscan.camera_params['left']['t'][2]])[:, None])).T
 
         if correl_points is not None:
-            pcl_points = self.convert_to_pointcloud2(measured_pts_camera)
+            pcl_points = self.convert_to_pointcloud2(correl_points)
             self.pcl_publisher.publish(pcl_points)
 
             self.left_images, self.right_images = np.ndarray([]), np.ndarray([])
-            self.get_logger().info('Point cloud published')
+            self.get_logger().info('Point cloud published refined points: {}'.format(correl_points.shape[0]))
+        else:
+            self.get_logger().error('No points found')
 
 
-    def convert_to_pointcloud2(self, points, frame_id="left_camera_link"):
+    def convert_to_pointcloud2(self, points, frame_id="SM3/left_camera_link"):
+
+        # Convert points to camera frame
+        points = (np.eye(3) @ (points.T + self.Zscan.camera_params['left']['t'][:, None])).T
+
         # Converte para mensagem PointCloud2
         header = Header()
         header.frame_id = frame_id
