@@ -69,20 +69,27 @@ class InverseTriangulation:
                             
         return images
 
-    def convert_images(self, left_imgs, right_imgs, apply_clahe=False, tile=11, climp=5.0):
+    def convert_images(self, left_imgs, right_imgs, apply_clahe=False, tile=11, climp=5.0, undist=False):
         """
         Convert images to CuPy arrays for GPU processing.
         Optionally apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
         """
         if apply_clahe:
             clahe = cv2.createCLAHE(clipLimit=climp, tileGridSize=(tile, tile))
-            left_imgs = [clahe.apply(img) for img in left_imgs]
-            right_imgs = [clahe.apply(img) for img in right_imgs]
+            if undist:
+                left_imgs = [self.remove_img_distortion(clahe.apply(img), 'left') for img in left_imgs]
+                right_imgs = [self.remove_img_distortion(clahe.apply(img), 'right') for img in right_imgs]
+            else:
+                left_imgs = [clahe.apply(img) for img in left_imgs]
+                right_imgs = [clahe.apply(img) for img in right_imgs]
 
 
         self.left_images = cp.asarray(np.stack(left_imgs, axis=-1)).astype(cp.uint8)
         self.right_images = cp.asarray(np.stack(right_imgs, axis=-1)).astype(cp.uint8)
         return True
+
+    def remove_img_distortion(self, img, camera):
+        return cv2.undistort(img, self.camera_params[camera]['kk'], self.camera_params[camera]['kc'])
 
     def points3d(self, x_lim=(-5, 5), y_lim=(-5, 5), z_lim=(0, 5), xy_step=1.0, z_step=1.0, visualize=False):
         """
@@ -150,7 +157,7 @@ class InverseTriangulation:
         # Convert bytes to GB
         return total_memory / (1024 ** 3)
 
-    def transform_gcs2ccs(self, points_3d, cam_name):
+    def transform_gcs2ccs(self, points_3d, cam_name, undist=False):
         """
         Transform Global Coordinate System (xg, yg, zg)
          to Camera's Coordinate System (xc, yc, zc) and transform to Image's plane (uv)
@@ -213,12 +220,15 @@ class InverseTriangulation:
             del xyz_ccs  # Immediately delete
 
             # Apply distortion using the GPU
-            xyz_ccs_norm_dist = self.undistorted_points(xyz_ccs_norm.T, dist)
-            del xyz_ccs_norm  # Free memory
-
-            # Compute image points using the intrinsic matrix K
-            uv_points_batch = cp.dot(k, xyz_ccs_norm_dist.T).astype(cp.float16)
-            del xyz_ccs_norm_dist  # Free memory
+            if undist:
+                xyz_ccs_norm_dist = self.undistorted_points(xyz_ccs_norm.T, dist)
+                del xyz_ccs_norm  # Free memory
+                uv_points_batch = cp.dot(k, xyz_ccs_norm_dist.T).astype(cp.float16)
+                del xyz_ccs_norm_dist  # Free memory
+            else:
+                # Compute image points using the intrinsic matrix K
+                uv_points_batch = cp.dot(k, xyz_ccs_norm).astype(cp.float16)
+                del xyz_ccs_norm  # Free memory
 
             # Debug: Check the shape of the result
             # print(f"uv_points_batch shape: {uv_points_batch.shape}")
@@ -229,15 +239,6 @@ class InverseTriangulation:
             # Free GPU memory after processing each batch
             cp.get_default_memory_pool().free_all_blocks()
             gc.collect()
-
-        # # Ensure consistent dimensions when concatenating batches
-        # try:
-        #     # Concatenate all batches along axis 0 (rows)
-        #     uv_points = np.hstack(uv_points_list)  # Use np.hstack for matching shapes
-
-        # except ValueError as e:
-        #     print(f"Error during concatenation: {e}")
-        #     raise
 
         return uv_points_list
 
@@ -321,8 +322,8 @@ class InverseTriangulation:
             uv_batch = uv_points[:, i:end]
 
             # Compute integer and fractional parts of UV coordinates
-            x = uv_batch[0].astype(cp.int32)
-            y = uv_batch[1].astype(cp.int32)
+            x = uv_batch[0].astype(cp.float16)
+            y = uv_batch[1].astype(cp.float16)
 
             x1 = cp.clip(cp.floor(x).astype(cp.int32), 0, width - 1)
             y1 = cp.clip(cp.floor(y).astype(cp.int32), 0, height - 1)
@@ -471,9 +472,6 @@ class InverseTriangulation:
         spatial_id : np.ndarray
             Index of the maximum correlation value for each point.
         """
-        # Convert images to CuPy arrays
-        # self.left_images = self.left_images
-        # self.right_images = self.right_images
 
         half_window = window_size // 2
         height, width, num_images = self.left_images.shape

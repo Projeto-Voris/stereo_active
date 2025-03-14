@@ -49,7 +49,7 @@ public:
                 else{ 
                     trigger_line = line; 
                     int ret_tr = gpiod_line_request_output(trigger_line, "trigger", 0);
-                } // 85 = PN.01 = GPIO09
+                } // 85 = PN.01 = GPIO12
             }
             else{ 
                 gpio_lines_.push_back(line);
