@@ -28,12 +28,12 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
         self.declare_parameter('tile', 15)
         self.declare_parameter('climp', 5.0)
-        self.declare_parameter('threshold1', 0.6)
+        self.declare_parameter('threshold1', 0.85)
         self.declare_parameter('window_size1', 21)
-        self.declare_parameter('std_threshold1', 15)
-        self.declare_parameter('threshold2', 0.6)
+        self.declare_parameter('std_threshold1', 20)
+        self.declare_parameter('threshold2', 0.9)
         self.declare_parameter('window_size2', 25)
-        self.declare_parameter('std_threshold2', 15)
+        self.declare_parameter('std_threshold2', 20)
         self.declare_parameter('save_correl', False)
 
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
@@ -68,10 +68,10 @@ class InverseTriangulationNode(Node):
         self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
         # Create the service from node
-        self.srv = self.create_service(Trigger, 'get_images', self.get_images_srv, callback_group=self.callback_group_srv)
+        self.srv = self.create_service(Trigger, 'process', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
-        self.save_srv = self.create_service(Trigger, 'save_images', self.save_cb)
+        self.save_srv = self.create_service(Trigger, 'save', self.save_cb)
 
         self.count = 1
         self.perform_correl = False
@@ -92,6 +92,8 @@ class InverseTriangulationNode(Node):
             self.spatial_correl_process()
             self.get_logger().info('Correlation process finished: {:.2f} s'.format(time.time()-t0))
             self.perform_correl = False
+            # self.left_images, self.right_images = [], []
+            # self.count = 1
     
     def save_cb(self, request, response):
         """
@@ -150,7 +152,7 @@ class InverseTriangulationNode(Node):
             self.count = 1
             self.left_images, self.right_images = [], []
             float_msg = Float32()
-            float_msg.data = 400.0  # Example value
+            float_msg.data = 500.0  # Example value
             self.motor_angle_pub.publish(float_msg)
 
             # Call laser service
@@ -162,17 +164,11 @@ class InverseTriangulationNode(Node):
             # If laser service was successful, trigger the camera
             if future_laser.result() is not None:
                 self.get_logger().info('Laser turned on')
-                # rclpy.spin_once(self)
-                # time.sleep(0.5)  # Delay to wait for the image to be captured
                 for n in range(self.num_images+4):
-                    # self.get_logger().info(f'Waiting for image {n+1}')
                     trigger_request = Trigger.Request()
-                    # self.get_logger().info(f'Triggering')
                     future = self.gpio_client.call_async(trigger_request)
                     rclpy.spin_until_future_complete(self, future)
                     if future.result() is not None:
-                        # self.get_logger().info(f'Image {n+1} captured')
-                        # rclpy.spin_once(self)
                         time.sleep(0.15)
                     else:
                         self.get_logger().error('Service call failed')

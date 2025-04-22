@@ -137,7 +137,42 @@ private:
                 }
             }
             });
-        } else {
+        } 
+        if(angle == 500.0){
+            if (rotation_thread_.joinable()) {
+                rotation_thread_.join();
+            }
+            keep_rotating_ = true;
+            std::vector<std::vector<int>> step_sequence_ccw = step_sequence;
+            std::reverse(step_sequence_ccw.begin(), step_sequence_ccw.end());
+
+            rotation_thread_ = std::thread([this, step_sequence, step_sequence_ccw](){
+                while (keep_rotating_) {
+                    // Rotate N degrees counter-clockwise
+                    int steps = static_cast<int>((90 / 360.0) * steps_per_revolution_);
+                    // std::reverse(step_sequence.begin(), step_sequence.end());
+                    for (int i = 0; i < steps; ++i) {
+                        for(const auto& step : step_sequence){
+                        for (size_t j = 0; j < gpio_lines_.size(); ++j) {
+                            gpiod_line_set_value(gpio_lines_[j], step[j]);
+                        }
+                    }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                    }
+
+                    for (int i = 0; i < (steps); ++i) {
+                        for(const auto& step : step_sequence_ccw){
+                            for (size_t j = 0; j < gpio_lines_.size(); ++j) {
+                                gpiod_line_set_value(gpio_lines_[j], step[j]);
+                            }
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                    }
+                }
+            });
+
+        }
+        else {
             keep_rotating_ = false;
             if (rotation_thread_.joinable()) {
                 rotation_thread_.join();

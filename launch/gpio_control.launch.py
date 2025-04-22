@@ -37,6 +37,14 @@ def generate_launch_description():
             namespace=LaunchConfiguration('namespace'),
             name='gpio_control_node',
             output='screen',
+        ),
+
+        Node(
+            package='stereo_active',  # Replace with your package name
+            executable='motor_control',  # Replace with your executable name
+            namespace=LaunchConfiguration('namespace'),
+            name='motor_control_node',
+            output='screen',
             parameters=[
                 {'stepping_mode': LaunchConfiguration('stepping_mode')},
                 {'delay': LaunchConfiguration('step_delay')},
