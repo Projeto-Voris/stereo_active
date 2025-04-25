@@ -99,7 +99,7 @@ void MotorControl::move_motor(const std_msgs::msg::Float32::SharedPtr msg)
             keep_rotating_ = true;
         
             rotation_thread_ = std::thread([this, step_sequence]() {
-                int steps = static_cast<int>((45 / 360.0) * steps_per_revolution_);
+                int steps = static_cast<int>((20 / 360.0) * steps_per_revolution_);
                 while (keep_rotating_) {
                     // Rotate N degrees clockwise
                     for (int i = 0; i < steps; ++i) {
