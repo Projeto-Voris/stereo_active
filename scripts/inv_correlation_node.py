@@ -6,7 +6,7 @@ import cupy as cp
 import time
 import struct
 from InverseTriangulation import InverseTriangulation
-
+from SpatialCorrelation import SpatialCorrelator
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -29,11 +29,11 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('tile', 15)
         self.declare_parameter('climp', 5.0)
         self.declare_parameter('threshold1', 0.85)
-        self.declare_parameter('window_size1', 21)
-        self.declare_parameter('std_threshold1', 20)
+        self.declare_parameter('radius1', 60)
+        self.declare_parameter('neighbors1', 5)
         self.declare_parameter('threshold2', 0.9)
-        self.declare_parameter('window_size2', 25)
-        self.declare_parameter('std_threshold2', 20)
+        self.declare_parameter('radius2', 5)
+        self.declare_parameter('neighbors2', 10)
         self.declare_parameter('save_correl', False)
 
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
@@ -42,7 +42,8 @@ class InverseTriangulationNode(Node):
         self.get_logger().info(f'Number of images to be captured: {self.num_images}')
 
         # Initialize the InverseTriangulation class
-        self.Zscan = InverseTriangulation(yaml_file=self.yaml_file)
+        # self.Zscan = InverseTriangulation(yaml_file=self.yaml_file)
+        self.Zscan = SpatialCorrelator(yaml_file=self.yaml_file)
         self.bridge = CvBridge()
 
         self.left_images = []
@@ -68,7 +69,7 @@ class InverseTriangulationNode(Node):
         self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
         # Create the service from node
-        self.srv = self.create_service(Trigger, 'process', self.get_images_srv, callback_group=self.callback_group_srv)
+        self.srv = self.create_service(SetBool, 'process', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
         self.save_srv = self.create_service(Trigger, 'save', self.save_cb)
@@ -89,7 +90,7 @@ class InverseTriangulationNode(Node):
             t0 = time.time()
             self.Zscan.convert_images(left_imgs=self.left_images, right_imgs=self.right_images, apply_clahe=True, tile=tile, climp=climp, undist=True)
             self.get_logger().info('Images converted: {:.2f} s'.format(time.time()-t0))
-            self.spatial_correl_process()
+            self.spatial_3d_correl_process()
             self.get_logger().info('Correlation process finished: {:.2f} s'.format(time.time()-t0))
             self.perform_correl = False
             # self.left_images, self.right_images = [], []
@@ -147,48 +148,47 @@ class InverseTriangulationNode(Node):
         """
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         self.service_requet = True
-        if request:
 
-            self.count = 1
-            self.left_images, self.right_images = [], []
-            float_msg = Float32()
-            float_msg.data = 500.0  # Example value
-            self.motor_angle_pub.publish(float_msg)
+        self.count = 1
+        self.left_images, self.right_images = [], []
+        float_msg = Float32()
+        float_msg.data = 500.0  # Example value
+        self.motor_angle_pub.publish(float_msg)
 
-            # Call laser service
-            laser_request = SetBool.Request()
-            laser_request.data = True  # Turn on the laser
-            future_laser = self.laser_client.call_async(laser_request)
-            rclpy.spin_until_future_complete(self, future_laser)
+        # Call laser service
+        laser_request = SetBool.Request()
+        laser_request.data = True  # Turn on the laser
+        future_laser = self.laser_client.call_async(laser_request)
+        rclpy.spin_until_future_complete(self, future_laser)
 
-            # If laser service was successful, trigger the camera
-            if future_laser.result() is not None:
-                self.get_logger().info('Laser turned on')
-                for n in range(self.num_images+4):
-                    trigger_request = Trigger.Request()
-                    future = self.gpio_client.call_async(trigger_request)
-                    rclpy.spin_until_future_complete(self, future)
-                    if future.result() is not None:
-                        time.sleep(0.15)
-                    else:
-                        self.get_logger().error('Service call failed')
+        # If laser service was successful, trigger the camera
+        if future_laser.result() is not None:
+            self.get_logger().info('Laser turned on')
+            for n in range(self.num_images+4):
+                trigger_request = Trigger.Request()
+                future = self.gpio_client.call_async(trigger_request)
+                rclpy.spin_until_future_complete(self, future)
+                if future.result() is not None:
+                    time.sleep(0.15)
+                else:
+                    self.get_logger().error('Service call failed')
 
-            # Call laser service to turn off
-            time.sleep(0.4)
-            laser_request = SetBool.Request()
-            laser_request.data = False  # Turn off the laser
-            future_laser = self.laser_client.call_async(laser_request)
-            rclpy.spin_until_future_complete(self, future_laser)
-            if future_laser.result() is not None:
-                self.get_logger().info('Laser turned off')
+        # Call laser service to turn off
+        time.sleep(0.4)
+        laser_request = SetBool.Request()
+        laser_request.data = False  # Turn off the laser
+        future_laser = self.laser_client.call_async(laser_request)
+        rclpy.spin_until_future_complete(self, future_laser)
+        if future_laser.result() is not None:
+            self.get_logger().info('Laser turned off')
 
-            rclpy.spin_until_future_complete(self, future_laser)
-            response.success = True
-            response.message = 'Images captured successfully'
-            float_msg.data = 0.0  # Example value
-            self.motor_angle_pub.publish(float_msg)
+        rclpy.spin_until_future_complete(self, future_laser)
+        response.success = True
+        response.message = 'Images captured successfully'
+        float_msg.data = 0.0  # Example value
+        self.motor_angle_pub.publish(float_msg)
 
-            self.perform_correl = True
+        self.perform_correl = request.data
         return response
 
     def spatial_correl_process(self):
@@ -333,6 +333,86 @@ class InverseTriangulationNode(Node):
         else:
             self.get_logger().error('No points found')
 
+    def spatial_3d_correl_process(self):
+        """
+            Function to perform spatial correlation
+        """
+        thresh1 = self.get_parameter('threshold1').get_parameter_value().double_value
+        radius1 = self.get_parameter('radius1').get_parameter_value().integer_value
+        neighbors1 = self.get_parameter('neighbors1').get_parameter_value().integer_value
+        thresh2 = self.get_parameter('threshold2').get_parameter_value().double_value
+        radius2 = self.get_parameter('radius2').get_parameter_value().integer_value
+        neighbors2 = self.get_parameter('neighbors2').get_parameter_value().integer_value
+        save_correl = self.get_parameter('save_correl').get_parameter_value().bool_value
+        # self.get_logger().info('First 3D points')
+        
+        # self.get_logger().info('3D meshgrid pts: {} mi '.format(self.Zscan.grid.shape[0] / 1e6))
+        self.Zscan.points3d(x_lim=(-180,300), y_lim=(-140,300), z_lim=(-500, 500), xy_step=20, z_step=1)
+        # 
+        xyz, corr, _, _ = self.Zscan.run_batch(r_xy=1, stride=2)
+        xyz = cp.asnumpy(xyz[corr > thresh1])
+        corr = cp.asnumpy(corr[corr > thresh1])
+        filtered_xyz, filtered_corr = self.Zscan.filter_sparse_points(xyz=xyz, corr=corr, min_neighbors=neighbors1, radius=radius1)
+
+
+        self.get_logger().info('First 3D points size: {}'.format(filtered_xyz.shape[0]))
+                    
+        if filtered_xyz.size <= 0:
+            self.get_logger().error('No points found')
+            return
+        
+        if filtered_xyz is not None:
+            pcl_points = self.convert_to_pointcloud2(filtered_xyz)
+            self.pcl_publisher.publish(pcl_points)
+
+            # self.left_images, self.right_images = np.ndarray([]), np.ndarray([])
+            self.get_logger().info('Point cloud published points: {}'.format(filtered_xyz.shape[0]))
+
+
+
+        self.get_logger().info('Second 3D points')
+        
+        xlim = [min(filtered_xyz[:,0]), max(filtered_xyz[:,0])] 
+        ylim = [min(filtered_xyz[:,1]), max(filtered_xyz[:,1])]
+        zlim = [min(filtered_xyz[:,2]), max(filtered_xyz[:,2])]
+
+        if zlim[0] == zlim[1]:
+            self.get_logger().warning('Z limits are equal')
+            zlim[1] = zlim[0] + 1
+            zlim[0] = zlim[0] - 1
+            self.Zscan.points3d(xlim, ylim, zlim, xy_step=1, z_step=1)
+            xyz, corr, _, _ = self.Zscan.run_batch(r_xy=.5, stride=2)
+            xyz = cp.asnumpy(xyz[corr > thresh2])
+            corr = cp.asnumpy(corr[corr > thresh2])
+            filtered_xyz, filtered_corr = self.Zscan.filter_sparse_points(xyz=xyz, corr=corr, min_neighbors=neighbors2, radius=radius2)
+
+
+        self.get_logger().info('Boundaries of first 3D points: {}'.format([xlim, ylim, zlim]))
+
+        
+        
+        del filtered_xyz
+
+        self.Zscan.points3d(xlim, ylim, zlim, xy_step=1, z_step=1)
+        xyz, corr, _, _ = self.Zscan.run_batch(r_xy=.5, stride=2)
+        xyz = cp.asnumpy(xyz[corr > thresh2])
+        corr = cp.asnumpy(corr[corr > thresh2])
+        filtered_xyz, filtered_corr = self.Zscan.filter_sparse_points(xyz=xyz, corr=corr, min_neighbors=neighbors2, radius=radius2)
+
+        if filtered_xyz.size <= 0:
+            self.get_logger().error('No points found')
+            return
+
+        # self.Zscan.save_points(points=correl_points, filename='correl_i{}_{}_{}_{}.txt'.format(self.num_images, thresh2, win_size2, std_thresh2))
+        self.get_logger().info('Publishing point cloud')
+
+        if filtered_xyz is not None:
+            pcl_points = self.convert_to_pointcloud2(filtered_xyz)
+            self.pcl_publisher.publish(pcl_points)
+
+            self.get_logger().info('Point cloud published refined points: {}'.format(filtered_xyz.shape[0]))
+        else:
+            self.get_logger().error('No points found')
 
     def convert_to_pointcloud2(self, points, frame_id="SM3/left_camera_link"):
 
