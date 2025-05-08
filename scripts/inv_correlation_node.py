@@ -29,8 +29,8 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('tile', 15)
         self.declare_parameter('climp', 5.0)
         self.declare_parameter('threshold1', 0.85)
-        self.declare_parameter('radius1', 60)
-        self.declare_parameter('neighbors1', 5)
+        self.declare_parameter('radius1', 40)
+        self.declare_parameter('neighbors1', 10)
         self.declare_parameter('threshold2', 0.9)
         self.declare_parameter('radius2', 5)
         self.declare_parameter('neighbors2', 10)
@@ -109,7 +109,7 @@ class InverseTriangulationNode(Node):
                 cv2.imwrite('left/L{:02d}.png'.format(n), left)
                 cv2.imwrite('right/R{:02d}.png'.format(n), right)
                 n += 1
-            if os.listdir('./left/') == self.num_images:
+            if len(os.listdir('./left/')) == self.num_images:
                 response.success = True
                 response.message = 'Images saved successfully'
                 self.get_logger().info('Images saved')
