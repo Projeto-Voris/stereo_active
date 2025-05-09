@@ -34,7 +34,9 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('threshold2', 0.9)
         self.declare_parameter('radius2', 5)
         self.declare_parameter('neighbors2', 10)
+
         self.declare_parameter('save_correl', False)
+        self.declare_parameter('save_points', False)
 
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
@@ -344,10 +346,11 @@ class InverseTriangulationNode(Node):
         radius2 = self.get_parameter('radius2').get_parameter_value().integer_value
         neighbors2 = self.get_parameter('neighbors2').get_parameter_value().integer_value
         save_correl = self.get_parameter('save_correl').get_parameter_value().bool_value
+        save_points = self.get_parameter('save_points').get_parameter_value().bool_value    
         # self.get_logger().info('First 3D points')
         
         # self.get_logger().info('3D meshgrid pts: {} mi '.format(self.Zscan.grid.shape[0] / 1e6))
-        self.Zscan.points3d(x_lim=(-180,300), y_lim=(-140,300), z_lim=(-500, 500), xy_step=20, z_step=1)
+        self.Zscan.points3d(x_lim=(-0,400), y_lim=(-100,300), z_lim=(-400,400), xy_step=20, z_step=1)
         # 
         xyz, corr, _, _ = self.Zscan.run_batch(r_xy=1, stride=2)
         xyz = cp.asnumpy(xyz[corr > thresh1])
@@ -368,6 +371,8 @@ class InverseTriangulationNode(Node):
             # self.left_images, self.right_images = np.ndarray([]), np.ndarray([])
             self.get_logger().info('Point cloud published points: {}'.format(filtered_xyz.shape[0]))
 
+        if save_correl:
+            np.savetxt('correl_1nd_th{:.1f}_{}.txt'.format(thresh1, time.strftime("%Y%m%d_%H%M")), corr.flatten(), fmt='%.6f')
 
 
         self.get_logger().info('Second 3D points')
@@ -403,9 +408,14 @@ class InverseTriangulationNode(Node):
             self.get_logger().error('No points found')
             return
 
-        # self.Zscan.save_points(points=correl_points, filename='correl_i{}_{}_{}_{}.txt'.format(self.num_images, thresh2, win_size2, std_thresh2))
         self.get_logger().info('Publishing point cloud')
 
+        if save_correl:
+            np.savetxt('correl_2nd_th{:.1f}_{}.txt'.format(thresh2, time.strftime("%Y%m%d_%H%M")), corr.flatten(), fmt='%.6f')
+
+        if save_points:
+            np.savetxt('points_{}.txt'.format(time.strftime("%Y%m%d_%H%M")), filtered_xyz, fmt='%.6f')
+            
         if filtered_xyz is not None:
             pcl_points = self.convert_to_pointcloud2(filtered_xyz)
             self.pcl_publisher.publish(pcl_points)
