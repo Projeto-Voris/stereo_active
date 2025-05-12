@@ -81,8 +81,8 @@ class MotorEvalNode(Node):
             os.makedirs(os.path.join(self.images_path, 'right'), exist_ok=True)
             n = 1
             for left, right in zip(self.left_images, self.right_images):
-                cv2.imwrite(os.path.join(self.images_path,'left/L{:02d}.png').format(n), left)
-                cv2.imwrite(os.path.join(self.images_path,'right/R{:02d}.png').format(n), right)
+                cv2.imwrite(os.path.join(self.images_path,'left/L{:03d}.png').format(n), left)
+                cv2.imwrite(os.path.join(self.images_path,'right/R{:03d}.png').format(n), right)
                 n += 1
             if len(os.listdir(os.path.join(self.images_path, 'left'))) == self.num_images:
                 response.success = True
@@ -106,10 +106,18 @@ class MotorEvalNode(Node):
             return
 
         if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
+            self.get_logger().info('BGR8')
             left_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
             right_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
         else:
+            self.get_logger().info('Mono8')
+
             left_image = self.bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
+            mask = (left_image > 255) | (left_image == 0)
+            img = left_image.copy()
+            img[~mask] == 255
+            cv2.imwrite('mask.png', img)
+            self.get_logger().info('Mask: {}'.format(np.unique(mask)))
             right_image = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
     
         self.left_images.append(left_image)
@@ -142,7 +150,7 @@ class MotorEvalNode(Node):
                 float_msg = Float32()
                 float_msg.data = self.motor_step/1024*360  # Example value
                 self.motor_angle_pub.publish(float_msg)
-                time.sleep(0.5)
+                time.sleep(1.0)
 
                 trigger_request = Trigger.Request()
                 future = self.gpio_client.call_async(trigger_request)

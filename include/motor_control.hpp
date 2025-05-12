@@ -31,4 +31,5 @@ private:
     
     std::atomic<bool> keep_rotating_;
     std::thread rotation_thread_;
+    int current_step_;
 };

@@ -23,7 +23,7 @@ MotorControl::MotorControl(std::string node, const std::vector<int>& gpio_pins, 
     this->get_parameter("steps_per_revolution", steps_per_revolution_);
     this->get_parameter("delay", delay_);
     this->get_parameter("stepping_mode", stepping_mode_);
-
+    current_step_ = 0;
     chip_ = gpiod_chip_open(gpio_chip_.c_str());
     if (!chip_) {
         RCLCPP_ERROR(this->get_logger(), "Failed to open GPIO chip: %s", gpio_chip_.c_str());
@@ -144,15 +144,17 @@ void MotorControl::move_motor(const std_msgs::msg::Float32::SharedPtr msg)
                 std::reverse(step_sequence.begin(), step_sequence.end());
             }
 
-            for (int i = 0; i < steps; ++i) {
-                const auto& step = step_sequence[i % step_sequence.size()];
-                for (size_t j = 0; j < gpio_lines_.size(); ++j) {
-                    gpiod_line_set_value(gpio_lines_[j], step[j]);
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+        for (int step_count = 0; step_count < steps; ++step_count) {
+            const auto& step = step_sequence[current_step_ % step_sequence.size()];
+            for (size_t j = 0; j < gpio_lines_.size(); ++j) {
+                gpiod_line_set_value(gpio_lines_[j], step[j]);
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+
+            current_step_ = (current_step_ + 1) % step_sequence.size();
         }
     }
+}
 
 void MotorControl::stop_motor()
 {
