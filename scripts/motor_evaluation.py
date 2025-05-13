@@ -72,7 +72,7 @@ class MotorEvalNode(Node):
         """
         Service callback to view the point cloud
         """
-        self.images_path = './{}_step{}'.format(time.strftime("%Y%m%d"), int(self.motor_step))
+        self.images_path = './{}_step{}'.format(time.strftime("%Y%m%d_%H%m"), int(self.motor_step))
 
         if request:
             self.get_logger().info('Saving images')
@@ -106,24 +106,20 @@ class MotorEvalNode(Node):
             return
 
         if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
-            self.get_logger().info('BGR8')
             left_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
             right_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
-        else:
-            self.get_logger().info('Mono8')
+        elif left_image.encoding == 'mono8' or left_image.encoding == 'mono16':
+
 
             left_image = self.bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
-            mask = (left_image > 255) | (left_image == 0)
-            img = left_image.copy()
-            img[~mask] == 255
-            cv2.imwrite('mask.png', img)
-            self.get_logger().info('Mask: {}'.format(np.unique(mask)))
-            right_image = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
-    
-        self.left_images.append(left_image)
-        self.right_images.append(right_image)
 
-        if self.service_requet:
+            right_image = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
+            # cv2.imwrite('img_r.png', right_image)
+            # cv2.imwrite('img_l.png', left_image)
+
+        if self.service_requet:    
+            self.left_images.append(left_image)
+            self.right_images.append(right_image)
             self.count +=1
 
     def get_images_srv(self, request, response):

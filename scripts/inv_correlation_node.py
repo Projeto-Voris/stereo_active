@@ -5,7 +5,6 @@ import numpy as np
 import cupy as cp
 import time
 import struct
-from InverseTriangulation import InverseTriangulation
 from SpatialCorrelation import SpatialCorrelator
 import rclpy
 from rclpy.node import Node
@@ -26,13 +25,13 @@ class InverseTriangulationNode(Node):
         # Parameters declaration
         self.declare_parameter('num_images', 15)
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
-        self.declare_parameter('tile', 15)
+        self.declare_parameter('tile', 3)
         self.declare_parameter('climp', 5.0)
         self.declare_parameter('threshold1', 0.85)
         self.declare_parameter('radius1', 40)
-        self.declare_parameter('neighbors1', 10)
+        self.declare_parameter('neighbors1', 5)
         self.declare_parameter('threshold2', 0.9)
-        self.declare_parameter('radius2', 5)
+        self.declare_parameter('radius2', 10)
         self.declare_parameter('neighbors2', 10)
 
         self.declare_parameter('save_correl', False)

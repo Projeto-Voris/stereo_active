@@ -47,7 +47,7 @@ def generate_launch_description():
                 parameters=[
                     {'num_images': LaunchConfiguration('n_images'),
                      'yaml_path': LaunchConfiguration('yaml_path'),
-                     'motor_step': 1}
+                     'motor_step': 10}
                 ],
                 remappings=[
                     ('left/image', LaunchConfiguration('left_image')),
