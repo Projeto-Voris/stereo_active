@@ -37,6 +37,7 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('save_correl', False)
         self.declare_parameter('save_points', False)
 
+        self.declare_parameter('camera_frame_id', 'SM3/left_camera_link')
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
         self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
         
@@ -70,7 +71,7 @@ class InverseTriangulationNode(Node):
         self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
         # Create the service from node
-        self.srv = self.create_service(SetBool, 'process', self.get_images_srv, callback_group=self.callback_group_srv)
+        self.srv = self.create_service(SetBool, 'correlation_process', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
         self.save_srv = self.create_service(Trigger, 'save', self.save_cb)
@@ -125,10 +126,7 @@ class InverseTriangulationNode(Node):
         Callback function for the stereo images subscriber
         """
 
-        if self.count <= self.num_images:
-            self.get_logger().info('Images callback received - {}'.format(self.count))
-        else:
-            # self.get_logger().info('Images received')
+        if not self.service_requet:
             return
 
         if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
@@ -349,7 +347,11 @@ class InverseTriangulationNode(Node):
         # self.get_logger().info('First 3D points')
         
         # self.get_logger().info('3D meshgrid pts: {} mi '.format(self.Zscan.grid.shape[0] / 1e6))
-        self.Zscan.points3d(x_lim=(-0,400), y_lim=(-100,300), z_lim=(-400,400), xy_step=20, z_step=1)
+                # Configurações iniciais
+        x_range = (-200, 500)
+        y_range = (-150, 500)
+        z_range = (-500, 500)
+        self.Zscan.points3d(x_lim=x_range, y_lim=y_range, z_lim=z_range, xy_step=20, z_step=1)
         # 
         xyz, corr, _, _ = self.Zscan.run_batch(r_xy=1, stride=2)
         xyz = cp.asnumpy(xyz[corr > thresh1])
@@ -423,8 +425,8 @@ class InverseTriangulationNode(Node):
         else:
             self.get_logger().error('No points found')
 
-    def convert_to_pointcloud2(self, points, frame_id="SM3/left_camera_link"):
-
+    def convert_to_pointcloud2(self, points):
+        frame_id = self.get_parameter('camera_frame_id').get_parameter_value().string_value
         points = (np.eye(3) @ (points.T + self.Zscan.camera_params['left']['t'][:, None])).T
 
         # Converte para mensagem PointCloud2

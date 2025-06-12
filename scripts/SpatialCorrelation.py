@@ -418,12 +418,6 @@ class SpatialCorrelator:
         uv_left = self.transform_gcs2ccs(pts_flat, cam_name='left')
         uv_right = self.transform_gcs2ccs(pts_flat, cam_name='right')
 
-        # uv_left_flat = uv_left.reshape(-1, 2).T  # Shape: (2, N * P)
-        # uv_right_flat = uv_right.reshape(-1, 2).T  # Shape: (2, N * P)
-
-        # interp_L = self.bilinear_interp_batch(self.left_images, uv_left)  # (N, P, T)
-        # interp_R = self.bilinear_interp_batch(self.right_images, uv_right)
-
         interp_L, stdL = self.bi_interpolation(self.left_images, uv_left) #(N, Kx, Ky, T)
         interp_R, stdR = self.bi_interpolation(self.right_images, uv_right)
 
