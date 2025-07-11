@@ -35,6 +35,7 @@ class PyTorchStereoCorrel(nn.Module):
         with open(yaml_file) as file:
             params = yaml.safe_load(file)
 
+        # Le parametros de cada câmera estereo e adiciona no dicionário de calibração
         for cam in ['left', 'right']:
             self.camera_params[cam]['kk'] = torch.tensor(params[f'camera_matrix_{cam}'], dtype=torch.float32, device=self.device)
             self.camera_params[cam]['kc'] = torch.tensor(params[f'dist_coeffs_{cam}'], dtype=torch.float32, device=self.device)
@@ -44,6 +45,31 @@ class PyTorchStereoCorrel(nn.Module):
         self.camera_params['stereo']['R'] = torch.tensor(params['R'], dtype=torch.float32, device=self.device)
         self.camera_params['stereo']['T'] = torch.tensor(params['T'], dtype=torch.float32, device=self.device).view(3, 1)
 
+    def verify_sensibility(self, x_lim, y_lim, z_lim, dxyz):
+        # Ponto central aproximado do seu volume de interesse (ROI)
+        x_mid = x_lim[0] + (x_lim[1] - x_lim[0]) / 2
+        y_mid = y_lim[0] + (y_lim[1] - y_lim[0]) / 2
+        z_mid = z_lim[0] + (z_lim[1] - z_lim[0]) / 2
+        # Crie tensores para os pontos no dispositivo correto
+        p_center = torch.tensor([[x_mid, y_mid, z_mid]], dtype=torch.float32, device=self.device)
+        p_step_x = torch.tensor([[x_mid + dxyz[0], y_mid, z_mid]], dtype=torch.float32, device=self.device)
+        p_step_z = torch.tensor([[x_mid, y_mid, z_mid + dxyz[1]]], dtype=torch.float32, device=self.device)
+
+        # Projete os pontos para a imagem da câmera esquerda (ou direita)
+        uv_center = self.transform_gcs2ccs(p_center, 'left')
+        uv_step_x = self.transform_gcs2ccs(p_step_x, 'left')
+        uv_step_z = self.transform_gcs2ccs(p_step_z, 'left')
+
+        # Calcule a distância em pixels apenas se os pontos forem válidos (projeção > 0)
+        if uv_center.min() > 0 and uv_step_x.min() > 0 and uv_step_z.min() > 0:
+            dist_pix_x = torch.linalg.norm(uv_step_x - uv_center).item()
+            dist_pix_z = torch.linalg.norm(uv_step_z - uv_center).item()
+            return dist_pix_x, dist_pix_z
+        else:
+            # print("Pontos projetados fora da imagem. Verifique os limites do volume de interesse.")
+            return 0, 0
+
+        
     def convert_images(self, left_imgs_cpu, right_imgs_cpu, apply_clahe=True, undist=True, climp=5, tile=11):
         processed_left_imgs = []
         processed_right_imgs = []

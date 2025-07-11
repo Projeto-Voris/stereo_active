@@ -29,7 +29,7 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
         self.declare_parameter('tile', 2)
         self.declare_parameter('climp', 11.0)
-        self.declare_parameter('window_size', 3)
+        self.declare_parameter('window_size', 1)
         self.declare_parameter('stride', 1)
         self.declare_parameter('threshold1', 0.7)
         self.declare_parameter('radius1', 5)
@@ -38,8 +38,8 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('radius2', 5)
         self.declare_parameter('neighbors2', 20)
 
-        self.declare_parameter('save_correl', False)
-        self.declare_parameter('save_points', False)
+        self.declare_parameter('save_filename', "correlation_points")
+        self.declare_parameter('save_points', True)
 
         self.declare_parameter('camera_frame_id', 'SM3/left_camera_link')
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
@@ -206,22 +206,25 @@ class InverseTriangulationNode(Node):
         thresh2 = self.get_parameter('threshold2').get_parameter_value().double_value
         radius2 = self.get_parameter('radius2').get_parameter_value().integer_value
         neighbors2 = self.get_parameter('neighbors2').get_parameter_value().integer_value
-        save_correl = self.get_parameter('save_correl').get_parameter_value().bool_value
-        save_points = self.get_parameter('save_points').get_parameter_value().bool_value    
         win_size = self.get_parameter('window_size').get_parameter_value().integer_value
         stride = self.get_parameter('stride').get_parameter_value().integer_value
-        # self.get_logger().info('First 3D points')
-        
-        # self.get_logger().info('3D meshgrid pts: {} mi '.format(self.Zscan.grid.shape[0] / 1e6))
-                # Configurações iniciais
-        x_range = (-200, 400)
-        y_range = (-200, 400)
+
+        # Debug values
+        save_points = self.get_parameter('save_points').get_parameter_value().bool_value
+        points_file_name = self.get_parameter('save_filename').get_parameter_value().string_value
+
+        # Initial 3d points
+        x_range = (-150, 400)
+        y_range = (-100, 400)
         z_range = (-500, 500)
         dxyz = (2.0, 5.0)
 
+        sens_px_x, sens_px_z = self.Zscan.verify_sensibility(x_lim=x_range, y_lim=y_range, z_lim=z_range, dxyz=dxyz)
+        self.get_logger().info('Sensibility in X: {:.2f} px, Z: {:.2f} px'.format(sens_px_x, sens_px_z))
+
         self.Zscan.points3d(x_lim=x_range, y_lim=y_range, z_lim=z_range, xy_step=dxyz[0], z_step=dxyz[1])
         # Process correlation with Z blocks
-        xyz_gpu, corr_gpu, _, _, _ = self.Zscan.process_segmented_z( Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5)
+        xyz_gpu, corr_gpu, _, _, _ = self.Zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5)
 
         # Filter points based on correlation threshold
         xyz_gpu = xyz_gpu[corr_gpu > thresh1]
@@ -242,8 +245,6 @@ class InverseTriangulationNode(Node):
         self.pcl_publisher.publish(pcl_points)
 
 
-        if save_correl:
-            np.savetxt('correl_1nd_th{:.1f}_{}.txt'.format(thresh1, time.strftime("%Y%m%d_%H%M")), corr.flatten(), fmt='%.6f')
 
 
         self.get_logger().info('Second 3D points')
@@ -279,11 +280,8 @@ class InverseTriangulationNode(Node):
 
         self.get_logger().info('Publishing point cloud')
 
-        if save_correl:
-            np.savetxt('correl_2nd_th{:.1f}_{}.txt'.format(thresh2, time.strftime("%Y%m%d_%H%M")), corr.flatten(), fmt='%.6f')
-
         if save_points:
-            np.savetxt('points_{}.txt'.format(time.strftime("%Y%m%d_%H%M")), filtered_xyz, fmt='%.6f')
+            np.savetxt('{}_{}.txt'.format(time.strftime("%Y%m%d"), points_file_name), filtered_xyz, fmt='%.6f')
             
         if filtered_xyz is not None:
             self.get_logger().info('Filtered points size: {}'.format(filtered_xyz.shape))
