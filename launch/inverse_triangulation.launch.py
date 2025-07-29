@@ -24,7 +24,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 'point_cloud',
-                default_value='point_cloud',
+                default_value='pointcloud',
                 description='Point cloud topic'
             ),
             DeclareLaunchArgument(
@@ -42,7 +42,11 @@ def generate_launch_description():
                 default_value=PathJoinSubstitution([FindPackageShare('stereo_active'), 'config','SM3.yaml']),
                 description='Number of images to acquire'
             ),
-
+            DeclareLaunchArgument(
+                'camera_frame_id',
+                default_value='/SM3/left_camera_link',
+                description='Camera frame ID'
+            ),
             Node(
                 package='stereo_active',
                 executable='inv_correlation_node.py',
@@ -51,12 +55,13 @@ def generate_launch_description():
                 output='screen',
                 parameters=[
                     {'num_images': LaunchConfiguration('n_images'),
-                     'yaml_path': LaunchConfiguration('yaml_path')}
+                     'yaml_path': LaunchConfiguration('yaml_path'),
+                     'camera_frame_id': LaunchConfiguration('camera_frame_id')}
                 ],
                 remappings=[
                     ('left/image', LaunchConfiguration('left_image')),
                     ('right/image', LaunchConfiguration('right_image')),
-                    ('point_cloud', LaunchConfiguration('point_cloud')),
+                    ('pointcloud', LaunchConfiguration('point_cloud')),
                     ('motor/angle', LaunchConfiguration('motor_topic'))
                 ]
             )
