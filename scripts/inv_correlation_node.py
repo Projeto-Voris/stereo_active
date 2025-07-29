@@ -25,21 +25,20 @@ class InverseTriangulationNode(Node):
         self.get_logger().info('InverseTriangulationNode has been started.')
 
         # Parameters declaration
-        self.declare_parameter('num_images', 15)
+        self.declare_parameter('num_images', 5)
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
-        self.declare_parameter('tile', 2)
-        self.declare_parameter('climp', 11.0)
-        self.declare_parameter('window_size', 1)
+        self.declare_parameter('tile', 1)
+        self.declare_parameter('climp', 2.0)
+        self.declare_parameter('window_size', 3)
         self.declare_parameter('stride', 1)
-        self.declare_parameter('threshold1', 0.7)
-        self.declare_parameter('radius1', 5)
-        self.declare_parameter('neighbors1', 5)
-        self.declare_parameter('threshold2', 0.8)
-        self.declare_parameter('radius2', 5)
-        self.declare_parameter('neighbors2', 20)
+        self.declare_parameter('threshold', 0.75)
+        self.declare_parameter('std_thresh', 10)
+        self.declare_parameter('radius', 10)
+        self.declare_parameter('neighbours', 10)
+
 
         self.declare_parameter('save_filename', "correlation_points")
-        self.declare_parameter('save_points', True)
+        self.declare_parameter('debug_save_points', True)
 
         self.declare_parameter('camera_frame_id', 'SM3/left_camera_link')
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
@@ -48,8 +47,8 @@ class InverseTriangulationNode(Node):
         self.get_logger().info(f'Number of images to be captured: {self.num_images}')
 
         # Initialize the InverseTriangulation class
-        # self.Zscan = InverseTriangulation(yaml_file=self.yaml_file)
-        self.Zscan = SpatialCorrelator(yaml_file=self.yaml_file)
+        # self.zscan = InverseTriangulation(yaml_file=self.yaml_file)
+        self.zscan = SpatialCorrelator(yaml_file=self.yaml_file)
         self.bridge = CvBridge()
 
         self.left_images = []
@@ -94,7 +93,7 @@ class InverseTriangulationNode(Node):
 
         if self.perform_correl and self.num_images <= self.count:
             t0 = time.time()
-            self.Zscan.convert_images(left_imgs_cpu=self.left_images, right_imgs_cpu=self.right_images, apply_clahe=True, undist=True, tile=tile, climp=climp)
+            self.zscan.convert_images(left_imgs_cpu=self.left_images, right_imgs_cpu=self.right_images, apply_clahe=True, undist=True, tile=tile, climp=climp)
             self.get_logger().info('Images converted: {:.2f} s'.format(time.time()-t0))
             self.spatial_3d_correl_process()
             self.get_logger().info('Correlation process finished: {:.2f} s'.format(time.time()-t0))
@@ -200,104 +199,111 @@ class InverseTriangulationNode(Node):
         """
             Function to perform spatial correlation
         """
-        thresh1 = self.get_parameter('threshold1').get_parameter_value().double_value
-        radius1 = self.get_parameter('radius1').get_parameter_value().integer_value
-        neighbors1 = self.get_parameter('neighbors1').get_parameter_value().integer_value
-        thresh2 = self.get_parameter('threshold2').get_parameter_value().double_value
-        radius2 = self.get_parameter('radius2').get_parameter_value().integer_value
-        neighbors2 = self.get_parameter('neighbors2').get_parameter_value().integer_value
+
+
+        # Get filter points parameters
+        std_tresh = self.get_parameter('std_thresh').value
+        rad_tresh = self.get_parameter('threshold').value
         win_size = self.get_parameter('window_size').get_parameter_value().integer_value
         stride = self.get_parameter('stride').get_parameter_value().integer_value
 
-        # Debug values
-        save_points = self.get_parameter('save_points').get_parameter_value().bool_value
-        points_file_name = self.get_parameter('save_filename').get_parameter_value().string_value
-
-        # Initial 3d points
-        x_range = (-150, 400)
-        y_range = (-100, 400)
-        z_range = (-500, 500)
-        dxyz = (2.0, 5.0)
-
-        sens_px_x, sens_px_z = self.Zscan.verify_sensibility(x_lim=x_range, y_lim=y_range, z_lim=z_range, dxyz=dxyz)
-        self.get_logger().info('Sensibility in X: {:.2f} px, Z: {:.2f} px'.format(sens_px_x, sens_px_z))
-
-        self.Zscan.points3d(x_lim=x_range, y_lim=y_range, z_lim=z_range, xy_step=dxyz[0], z_step=dxyz[1])
-        # Process correlation with Z blocks
-        xyz_gpu, corr_gpu, _, _, _ = self.Zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5)
-
-        # Filter points based on correlation threshold
-        xyz_gpu = xyz_gpu[corr_gpu > thresh1]
-        corr_gpu = corr_gpu[corr_gpu > thresh1]
-        # Filter sparse points based on neighbors and radius
-        filtered_xyz, _ = self.Zscan.filter_sparse_points(xyz_gpu=xyz_gpu, corr_gpu=corr_gpu, min_neighbors=neighbors1, radius=radius1)
+        radius = self.get_parameter('radius').value
+        min_neighbours = self.get_parameter('neighbours').value
+        save_points = self.get_parameter('debug_save_points').value
+        filename = self.get_parameter('save_filename').get_parameter_value().string_value
 
 
-                    
-        if filtered_xyz.shape[0] == 0:
-            self.get_logger().error('No points found')
+        GRID_LIMITS = {'x': (-100, 500), 'y': (-100, 400), 'z': (-300, 800)}
+        GRID_STEPS_1 = {'xy': 2.0, 'z': 4} # first steps of 3d patch
+        GRID_STEPS_2 = {'xy': 1.0, 'z': 0.1} # second steps of 3d patch
+        GRID_STEPS_3= {'xy': 1.0, 'z': 0.1} # second steps of 3d patch
+
+        self.zscan.points3d(x_lim=GRID_LIMITS['x'], y_lim=GRID_LIMITS['y'], z_lim=GRID_LIMITS['z'],
+                            xy_step=GRID_STEPS_1['xy'], z_step=GRID_STEPS_1['z'])
+                        
+        xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=20, method='correl')
+
+        # filter points based on difference value in radians
+        filter_mask = corr_gpu < rad_tresh
+        xyz_filtered_gpu = xyz_gpu[filter_mask]
+        corr_filtered_gpu = corr_gpu[filter_mask]
+        xyz_filtered_gpu, corr_filtered_gpu = self.zscan.mask_points(xyz_filtered_gpu, corr_filtered_gpu, bounds=std_tresh+10, method='correl')
+
+        # clean points based on neighbours
+        final_xyz_gpu, _ = self.zscan.filter_sparse_points( xyz_gpu=xyz_filtered_gpu, corr_gpu=corr_filtered_gpu,min_neighbours=min_neighbours, radius=radius)
+
+        if final_xyz_gpu.numel() == 0:
+            self.get_logger().warning("No points found")
             return
         
+        # Find first 3D bounds to refined process               
+        xlim = torch.min(final_xyz_gpu[:, 0]), torch.max(final_xyz_gpu[:, 0])
+        ylim = torch.min(final_xyz_gpu[:, 1]), torch.max(final_xyz_gpu[:, 1])
+        zlim = torch.min(final_xyz_gpu[:, 2]), torch.max(final_xyz_gpu[:, 2])
 
-        self.get_logger().info('Filtered points size: {}'.format(filtered_xyz.shape))
+        if zlim[0] == zlim[1]:
+            self.get_logger().info("Z are same")
+            zlim[0] = zlim[0] - 5
+            zlim[1] = zlim[1] + 5
 
-        pcl_points = self.convert_to_pointcloud2(filtered_xyz)
+        # Construct second 3d points
+        self.zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, 
+                            xy_step=GRID_STEPS_2['xy'], z_step=GRID_STEPS_2['z'])
+                        
+        xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5, method='correl')
+
+        
+        filter_mask = corr_gpu > rad_tresh
+        xyz_filtered_gpu = xyz_gpu[filter_mask]
+        corr_filtered_gpu = corr_gpu[filter_mask]
+        xyz_filtered_gpu, corr_filtered_gpu = self.zscan.mask_points(xyz_filtered_gpu, corr_filtered_gpu, bounds=std_tresh, method='correl')
+        final_xyz_gpu, _ = self.zscan.filter_sparse_points(xyz_gpu=xyz_filtered_gpu, corr_gpu=corr_filtered_gpu, min_neighbours=min_neighbours+5, radius=radius-5)
+
+        # if final_xyz_gpu.numel() == 0:
+        #     self.get_logger().warning("No points found")
+        #     return
+        
+        # # Find first 3D bounds to refined process               
+        # xlim = torch.min(final_xyz_gpu[:, 0]), torch.max(final_xyz_gpu[:, 0])
+        # ylim = torch.min(final_xyz_gpu[:, 1]), torch.max(final_xyz_gpu[:, 1])
+        # zlim = torch.min(final_xyz_gpu[:, 2]), torch.max(final_xyz_gpu[:, 2])
+
+        # if zlim[0] == zlim[1]:
+        #     self.get_logger().info("Z are same")
+        #     zlim[0] = zlim[0] - 5
+        #     zlim[1] = zlim[1] + 5
+
+        # # Construct second 3d points
+        # self.zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, 
+        #                     xy_step=GRID_STEPS_3['xy'], z_step=GRID_STEPS_3['z'])
+                        
+        # xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5, method='correl')
+
+        
+        # filter_mask = corr_gpu > rad_tresh
+        # xyz_filtered_gpu = xyz_gpu[filter_mask]
+        # corr_filtered_gpu = corr_gpu[filter_mask]
+        # xyz_filtered_gpu, corr_filtered_gpu = self.zscan.mask_points(xyz_filtered_gpu, corr_filtered_gpu, bounds=std_tresh, method='correl')
+        # final_xyz_gpu, _ = self.zscan.filter_sparse_points(xyz_gpu=xyz_filtered_gpu, corr_gpu=corr_filtered_gpu, min_neighbours=min_neighbours+10, radius=radius-5)
+
+        pcl_points = self.convert_to_pointcloud2(xyz_filtered_gpu.cpu().numpy())
         self.pcl_publisher.publish(pcl_points)
 
 
-
-
-        self.get_logger().info('Second 3D points')
-        # Get the points boundaries for second process
-        x_lim = [min(filtered_xyz[:,0]), max(filtered_xyz[:,0])] 
-        y_lim = [min(filtered_xyz[:,1]), max(filtered_xyz[:,1])]
-        z_lim = [min(filtered_xyz[:,2]), max(filtered_xyz[:,2])]
-        dxyz = (1.0, 1.0)
-
-
-        # Add a small margin to the limits
-        if z_lim[0] == z_lim[1]:
-            self.get_logger().warning('Z limits are equal')
-            z_lim[1] = z_lim[0] + 1
-            z_lim[0] = z_lim[0] - 1
-
-        self.get_logger().info('Boundaries of first 3D points: {}'.format([x_lim, y_lim, z_lim]))
-
-        del filtered_xyz
-
-        self.Zscan.points3d(x_lim, y_lim, z_lim, xy_step=1, z_step=1)
-        # Process correlation with Z blocks
-        xyz_gpu, corr_gpu, _, _, _ = self.Zscan.process_segmented_z( Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5)
-
-        # Filter points based on correlation threshold
-        xyz_gpu = xyz_gpu[corr_gpu > thresh1]
-        corr_gpu = corr_gpu[corr_gpu > thresh1]
-        filtered_xyz, _ = self.Zscan.filter_sparse_points(xyz_gpu=xyz_gpu, corr_gpu=corr_gpu, min_neighbors=neighbors2, radius=radius2)
-
-        if filtered_xyz.size == 0:
-            self.get_logger().error('No points found')
-            return
-
-        self.get_logger().info('Publishing point cloud')
-
         if save_points:
-            np.savetxt('{}_{}.txt'.format(time.strftime("%Y%m%d"), points_file_name), filtered_xyz, fmt='%.6f')
+            np.savetxt('{}_{}.txt'.format(time.strftime("%Y%m%d"), filename), xyz_filtered_gpu.cpu().numpy(), fmt='%.6f')
             
-        if filtered_xyz is not None:
-            self.get_logger().info('Filtered points size: {}'.format(filtered_xyz.shape))
-            pcl_points = self.convert_to_pointcloud2(filtered_xyz)
-            self.pcl_publisher.publish(pcl_points)
 
-            self.get_logger().info('Point cloud published refined points: {}'.format(filtered_xyz.shape[0]))
-        else:
-            self.get_logger().error('No points found')
+
 
     def convert_to_pointcloud2(self, points):
         frame_id = self.get_parameter('camera_frame_id').get_parameter_value().string_value
-        points = (np.eye(3) @ (points.T + self.Zscan.camera_params['left']['t'].cpu().numpy())).T
+        t_left = self.zscan.camera_params['left']['t'].cpu().numpy().T[0]
+        points = (np.eye(3) @ (points.T + t_left[:,None])).T
 
         # Converte para mensagem PointCloud2
         header = Header()
+        header.stamp = self.get_clock().now().to_msg()
         header.frame_id = frame_id
         fields = [
             PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
@@ -308,8 +314,7 @@ class InverseTriangulationNode(Node):
         # Corrige a escala dos pontos de metros para milímetros
         points = np.divide(points, 1000.0)
 
-        pointcloud_data = b''.join([struct.pack('fff', float(p[0]), float(p[1]), float(p[2])) for p in points])
-
+        pointcloud_data = b''.join([struct.pack('fff', *p) for p in points])
         return PointCloud2(
             header=header,
             height=1,
