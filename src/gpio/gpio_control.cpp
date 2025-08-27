@@ -149,7 +149,7 @@ private:
             rotation_thread_ = std::thread([this, step_sequence, step_sequence_ccw](){
                 while (keep_rotating_) {
                     // Rotate N degrees counter-clockwise
-                    int steps = static_cast<int>((90 / 360.0) * steps_per_revolution_);
+                    int steps = static_cast<int>((110 / 360.0) * steps_per_revolution_);
                     // std::reverse(step_sequence.begin(), step_sequence.end());
                     for (int i = 0; i < steps; ++i) {
                         for(const auto& step : step_sequence){

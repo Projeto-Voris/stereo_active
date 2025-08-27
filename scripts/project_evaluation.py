@@ -17,20 +17,15 @@ import message_filters
 from std_srvs.srv import Trigger, SetBool
 
 
-class MotorEvalNode(Node):
+class ProjectEvalNode(Node):
     def __init__(self):
-        super().__init__('motor_eval_node')
-
-        # Parameters declaration
+        super().__init__('project_eval_node')
         self.declare_parameter('num_images', 30)
-        self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
-        self.declare_parameter('motor_step', 10)
 
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
-        self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
-        self.motor_step = self.get_parameter('motor_step').get_parameter_value().integer_value
 
-        self.images_path = './{}_step{}'.format(time.strftime("%Y%m%d"), int(self.motor_step))
+
+        self.images_path = './{}'.format(time.strftime("%Y%m%d"))
         self.get_logger().info(f'Number of images to be captured: {self.num_images}')
 
 
@@ -49,7 +44,6 @@ class MotorEvalNode(Node):
                                                     queue_size=10, slop=0.05)
         self.ts.registerCallback(self.stereo_images_callback)
 
-        self.motor_angle_pub = self.create_publisher(Float32, 'motor/angle', 10)
 
 
         # Create mutually exclusive callback groups
@@ -60,7 +54,7 @@ class MotorEvalNode(Node):
         # Create the service from node
         self.srv = self.create_service(SetBool, 'acquire', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
-        self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
+        self.project_pattern = self.create_client(Trigger, 'next_image', callback_group=self.callback_group_laser_client)
         self.save_srv = self.create_service(Trigger, 'save', self.save_cb)
 
         self.count = 1
@@ -127,7 +121,6 @@ class MotorEvalNode(Node):
         Service callback to get stereo images
         """
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
-        self.motor_step = self.get_parameter('motor_step').get_parameter_value().integer_value
         self.service_requet = request.data
 
         self.count = 1
@@ -136,38 +129,32 @@ class MotorEvalNode(Node):
         # Call laser service
         laser_request = SetBool.Request()
         laser_request.data = True  # Turn on the laser
-        future_laser = self.laser_client.call_async(laser_request)
+        future_laser = self.project_pattern.call_async(laser_request)
         rclpy.spin_until_future_complete(self, future_laser)
 
         # If laser service was successful, trigger the camera
         if future_laser.result() is not None:
             self.get_logger().info('Laser turned on')
-            for n in range(self.num_images+4):
-                float_msg = Float32()
-                float_msg.data = self.motor_step/1024*360  # Example value
-                self.motor_angle_pub.publish(float_msg)
+            for n in range(self.num_images):
                 time.sleep(1.0)
 
                 trigger_request = Trigger.Request()
                 future = self.gpio_client.call_async(trigger_request)
                 rclpy.spin_until_future_complete(self, future)
+                next_image_request = Trigger.Request()
+                
                 if future.result() is not None:
                     time.sleep(0.15)
+                    future_image = self.gpio_client.call_async(next_image_request)
+                    rclpy.spin_until_future_complete(self, future_image)
+                    if future_image.result() is not None:
+                        time.sleep(0.15)
                 else:
                     self.get_logger().error('Service call failed')
 
         # Call laser service to turn off
         time.sleep(0.4)
-        laser_request = SetBool.Request()
-        laser_request.data = False  # Turn off the laser
-        future_laser = self.laser_client.call_async(laser_request)
-        float_msg.data = -(self.num_images+4)*self.motor_step/1024*360 
-        self.motor_angle_pub.publish(float_msg)
-        rclpy.spin_until_future_complete(self, future_laser)
-        if future_laser.result() is not None:
-            self.get_logger().info('Laser turned off')
 
-        rclpy.spin_until_future_complete(self, future_laser)
         response.success = True
         response.message = 'Images captured successfully'
 
@@ -177,7 +164,7 @@ class MotorEvalNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MotorEvalNode()
+    node = ProjectEvalNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
