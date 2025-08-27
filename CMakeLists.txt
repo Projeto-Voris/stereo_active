@@ -80,6 +80,8 @@ install(PROGRAMS
         scripts/inv_correlation_node.py
         scripts/inv_correl_read.py
         scripts/motor_evaluation.py
+        scripts/project_pattern.py
+        scripts/project_evaluation.py
         DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)

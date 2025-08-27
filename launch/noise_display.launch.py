@@ -17,7 +17,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'monitor_name',
-            default_value='Monitor_1',
+            default_value='Monitor_0',
             description='Monitor output port'
         ),
         DeclareLaunchArgument(

@@ -6,14 +6,14 @@
 StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size_(10), capture_images_(false) {
     
     this->declare_parameter<int>("buffer_size", 10.0);
-    this->declare_parameter<std::string>("images_path", "/home/jetson/Pictures/SM3/temp");
+    this->declare_parameter<std::string>("images_path", "/home/jetson/Pictures/pattern");
     this->get_parameter("buffer_size", buffer_size_);
     this->get_parameter("images_path", images_path_);
     RCLCPP_INFO(this->get_logger(), "Image path %s.", images_path_.c_str());
 
     
-    left_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "left_image");
-    right_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "right_image");
+    left_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "/SM4/left/image_raw");
+    right_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "/SM4/right/image_raw");
 
     sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), *left_sub, *right_sub);
     sync_->registerCallback(std::bind(&StereoAcquisition::images_cb, this, std::placeholders::_1, std::placeholders::_2));
@@ -24,7 +24,7 @@ StereoAcquisition::StereoAcquisition() : Node("stereo_acquisition"), buffer_size
     see_images_service_ = this->create_service<std_srvs::srv::Trigger>("show_images", 
                 std::bind(&StereoAcquisition::service_see_cb, this, std::placeholders::_1, std::placeholders::_2));
 
-    noise_image_client_ = this->create_client<std_srvs::srv::SetBool>("pattern_change");
+    noise_image_client_ = this->create_client<std_srvs::srv::SetBool>("/SM3/pattern_change");
 
     count_ = 0;
 
@@ -55,9 +55,6 @@ void StereoAcquisition::images_cb(const sensor_msgs::msg::Image::ConstSharedPtr 
         noise_image_client_->async_send_request(request, [this, cv_ptrLeft, cv_ptrRight](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture result) {
             if (result.get()->success && image_buffer_.size() < buffer_size_) {
                 count_++;
-                if (count_ < 6){
-                    return;
-                }
                 cv::Mat left_image = cv_ptrLeft->image;
                 cv::Mat right_image = cv_ptrRight->image;
 
@@ -84,12 +81,13 @@ void StereoAcquisition::images_cb(const sensor_msgs::msg::Image::ConstSharedPtr 
                     
                     // Publish the images in the buffer
                     for (const auto &image_pair : image_buffer_) {
-                        std::string left_image_path = images_path_ + "/left/L" + std::to_string(count_) + ".jpg";
-                        std::string right_image_path = images_path_ + "/right/R" + std::to_string(count_) + ".jpg";
+                        std::string left_image_path = images_path_ + "/left/L" + std::to_string(count_) + ".png";
+                        std::string right_image_path = images_path_ + "/right/R" + std::to_string(count_) + ".png";
                         cv::imwrite(left_image_path, image_pair.first);
                         cv::imwrite(right_image_path, image_pair.second);
                         count_++;
                     }
+                    RCLCPP_INFO(this->get_logger(), "Images saved to disk at %s.", images_path_.c_str());
                 }
                 else{
                     RCLCPP_WARN(this->get_logger(), "Noise image service returned false.");

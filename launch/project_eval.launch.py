@@ -23,36 +23,33 @@ def generate_launch_description():
                 description='Right camera info topic'
             ),
             DeclareLaunchArgument(
-                'motor_topic',
-                default_value='motor/angle',
-                description='Point cloud topic'
-            ),
-            DeclareLaunchArgument(
                 'n_images',
                 default_value='30',
-                description='Number of images to acquire'
-            ),
-            DeclareLaunchArgument(
-                'yaml_path',
-                default_value=PathJoinSubstitution([FindPackageShare('stereo_active'), 'config','SM3.yaml']),
                 description='Number of images to acquire'
             ),
 
             Node(
                 package='stereo_active',
-                executable='motor_evaluation.py',
-                name='motor_eval_node',
+                executable='project_evaluation.py',
+                name='project_eval_node',
                 namespace=LaunchConfiguration('namespace'),
                 output='screen',
                 parameters=[
-                    {'num_images': LaunchConfiguration('n_images'),
-                     'yaml_path': LaunchConfiguration('yaml_path'),
-                     'motor_step': 10}
+                    {'num_images': LaunchConfiguration('n_images')},
                 ],
                 remappings=[
                     ('left/image', LaunchConfiguration('left_image')),
                     ('right/image', LaunchConfiguration('right_image')),
-                    ('motor/angle', LaunchConfiguration('motor_topic'))
+                ]
+            ),
+            Node(
+                package='stereo_active',
+                executable='project_pattern.py',
+                name='project_patarn_node',
+                namespace=LaunchConfiguration('namespace'),
+                output='screen',
+                parameters=[
+                    {'image_path': '/home/jetson/Videos/random_pattern'}
                 ]
             )
         ])

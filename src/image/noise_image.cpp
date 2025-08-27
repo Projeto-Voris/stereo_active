@@ -93,12 +93,14 @@ void ImageDisplayNode::get_screen_resolution(const std::string& monitor_name) {
 }
 
 void ImageDisplayNode::construct_window() {
-    cv::namedWindow(window_name_, cv::WINDOW_FULLSCREEN);
-    cv::moveWindow(window_name_, window_position_.first, window_position_.second);
+    cv::namedWindow(window_name_, cv::WINDOW_NORMAL);  // allow resizing
+    cv::setWindowProperty(window_name_, cv::WND_PROP_FULLSCREEN, cv::WINDOW_FULLSCREEN);  
 }
 
+
 cv::Mat ImageDisplayNode::generate_noise_image(int seed) {
-    cv::Mat noise_image(image_height_, image_width_, CV_8UC1);
+    // Create 8UC3 image (3 channels: BGR)
+    cv::Mat noise_image(image_height_, image_width_, CV_8UC3);
 
     // Create a Perlin noise module
     noise::module::Perlin perlinModule;
@@ -108,7 +110,7 @@ cv::Mat ImageDisplayNode::generate_noise_image(int seed) {
     perlinModule.SetLacunarity(lacunarity_);
     perlinModule.SetOctaveCount(octave_);
 
-    // Generate noise values in parallel
+    // Generate noise values
     #pragma omp parallel for
     for (int i = 0; i < image_height_; ++i) {
         for (int j = 0; j < image_width_; ++j) {
@@ -116,25 +118,24 @@ cv::Mat ImageDisplayNode::generate_noise_image(int seed) {
             double y = static_cast<double>(j) / image_width_;
             double noise_value = perlinModule.GetValue(x, y, 0.0);
 
-            // Normalize noise_value to the range [0, 255]
+            // Normalize to [0, 255]
             uchar noise_pixel = static_cast<uchar>((noise_value + 1.0) * 127.5);
-            noise_image.at<uchar>(i, j) = noise_pixel;
+
+            // Put intensity into BLUE channel only
+            noise_image.at<cv::Vec3b>(i, j) = cv::Vec3b(noise_pixel, 0, 0);
         }
     }
 
-    // Apply a binary threshold to create a black and white image
-    double threshold_value = 150; // Threshold value for binarization
-    cv::threshold(noise_image, noise_image, threshold_value, 255, cv::THRESH_BINARY);
-
-    // Apply Gaussian blur to smooth the noise (optional, can be reduced or removed)
-    int kernel = 21;
-    cv::GaussianBlur(noise_image, noise_image, cv::Size(kernel, kernel), 0);
-    cv::GaussianBlur(noise_image, noise_image, cv::Size(kernel, kernel), 0);
+    // (Optional) Smooth it a little
+    int kernel = 7;
     cv::GaussianBlur(noise_image, noise_image, cv::Size(kernel, kernel), 0);
 
-    RCLCPP_INFO(this->get_logger(), "Black and white noise image created with seed %d", seed);
+    RCLCPP_INFO(this->get_logger(), "Blue noise image created with seed %d", seed);
+
     return noise_image;
 }
+
+
 
 int ImageDisplayNode::generate_random_seed() {
     std::random_device rd;

@@ -215,7 +215,7 @@ class InverseTriangulationNode(Node):
 
         GRID_LIMITS = {'x': (-100, 500), 'y': (-100, 400), 'z': (-300, 800)}
         GRID_STEPS_1 = {'xy': 2.0, 'z': 4} # first steps of 3d patch
-        GRID_STEPS_2 = {'xy': 1.0, 'z': 0.1} # second steps of 3d patch
+        GRID_STEPS_2 = {'xy': 2.0, 'z': 0.3} # second steps of 3d patch
         GRID_STEPS_3= {'xy': 1.0, 'z': 0.1} # second steps of 3d patch
 
         self.zscan.points3d(x_lim=GRID_LIMITS['x'], y_lim=GRID_LIMITS['y'], z_lim=GRID_LIMITS['z'],
@@ -243,8 +243,7 @@ class InverseTriangulationNode(Node):
 
         if zlim[0] == zlim[1]:
             self.get_logger().info("Z are same")
-            zlim[0] = zlim[0] - 5
-            zlim[1] = zlim[1] + 5
+            return
 
         # Construct second 3d points
         self.zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, 
