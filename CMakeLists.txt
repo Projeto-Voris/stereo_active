@@ -82,6 +82,7 @@ install(PROGRAMS
         scripts/motor_evaluation.py
         scripts/project_pattern.py
         scripts/project_evaluation.py
+        scripts/project_white.py
         DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)

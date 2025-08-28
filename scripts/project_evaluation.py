@@ -52,10 +52,10 @@ class ProjectEvalNode(Node):
         self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
 
         # Create the service from node
-        self.srv = self.create_service(SetBool, 'acquire', self.get_images_srv, callback_group=self.callback_group_srv)
+        self.srv = self.create_service(SetBool, 'acquire_pattern', self.get_images_srv, callback_group=self.callback_group_srv)
         self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
         self.project_pattern = self.create_client(Trigger, 'next_image', callback_group=self.callback_group_laser_client)
-        self.save_srv = self.create_service(Trigger, 'save', self.save_cb)
+        self.save_srv = self.create_service(Trigger, 'save_pattern', self.save_cb)
 
         self.count = 1
         self.perform_correl = False
@@ -66,7 +66,7 @@ class ProjectEvalNode(Node):
         """
         Service callback to view the point cloud
         """
-        self.images_path = './{}_step{}'.format(time.strftime("%Y%m%d"), int(self.motor_step))
+        self.images_path = './{}_pattern_images'.format(time.strftime("%Y%m%d"))
 
         if request:
             self.get_logger().info('Saving images')
@@ -121,36 +121,30 @@ class ProjectEvalNode(Node):
         Service callback to get stereo images
         """
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
-        self.service_requet = request.data
-
+        self.service_requet = True
         self.count = 1
         self.left_images, self.right_images = [], []
 
-        # Call laser service
-        laser_request = SetBool.Request()
-        laser_request.data = True  # Turn on the laser
-        future_laser = self.project_pattern.call_async(laser_request)
-        rclpy.spin_until_future_complete(self, future_laser)
 
-        # If laser service was successful, trigger the camera
-        if future_laser.result() is not None:
-            self.get_logger().info('Laser turned on')
-            for n in range(self.num_images):
-                time.sleep(1.0)
+        for n in range(self.num_images):
+            time.sleep(1.0)
 
-                trigger_request = Trigger.Request()
-                future = self.gpio_client.call_async(trigger_request)
-                rclpy.spin_until_future_complete(self, future)
-                next_image_request = Trigger.Request()
-                
-                if future.result() is not None:
+            trigger_request = Trigger.Request()
+            future = self.gpio_client.call_async(trigger_request)
+            rclpy.spin_until_future_complete(self, future)
+            next_image_request = Trigger.Request()
+            
+            if future.result() is not None:
+                time.sleep(0.15)
+                future_image = self.project_pattern.call_async(next_image_request)
+                rclpy.spin_until_future_complete(self, future_image)
+                if future_image.result() is not None:
                     time.sleep(0.15)
-                    future_image = self.gpio_client.call_async(next_image_request)
-                    rclpy.spin_until_future_complete(self, future_image)
-                    if future_image.result() is not None:
-                        time.sleep(0.15)
+                    self.get_logger().info('Pattern projected')
                 else:
-                    self.get_logger().error('Service call failed')
+                    self.get_logger().error('Service next_image call failed')
+            else:
+                self.get_logger().error('Service call failed')
 
         # Call laser service to turn off
         time.sleep(0.4)

@@ -11,7 +11,7 @@ class ImageProjector(Node):
         super().__init__('image_projector')
 
         # Parâmetro da pasta com imagens
-        self.declare_parameter('image_path', '/home/jetson/Videos/random_pattern')
+        self.declare_parameter('image_path', '/home/jetson/Pictures/random_pattern')
         image_path = self.get_parameter('image_path').get_parameter_value().string_value
 
         # Carrega todas as imagens da pasta

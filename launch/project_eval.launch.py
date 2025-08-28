@@ -49,7 +49,7 @@ def generate_launch_description():
                 namespace=LaunchConfiguration('namespace'),
                 output='screen',
                 parameters=[
-                    {'image_path': '/home/jetson/Videos/random_pattern'}
+                    {'image_path': '/home/jetson/Pictures/random_pattern'}
                 ]
             )
         ])

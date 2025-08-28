@@ -298,7 +298,8 @@ class InverseTriangulationNode(Node):
     def convert_to_pointcloud2(self, points):
         frame_id = self.get_parameter('camera_frame_id').get_parameter_value().string_value
         t_left = self.zscan.camera_params['left']['t'].cpu().numpy().T[0]
-        points = (np.eye(3) @ (points.T + t_left[:,None])).T
+        r_left = self.zscan.camera_params['left']['r'].cpu().numpy()
+        points = (r_left @ points.T).T + t_left
 
         # Converte para mensagem PointCloud2
         header = Header()
