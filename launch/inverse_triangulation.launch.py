@@ -9,22 +9,22 @@ def generate_launch_description():
         return LaunchDescription([
             DeclareLaunchArgument(
                 'namespace',
-                default_value='SM3',
+                default_value='Active',
                 description='Namespace'
             ),
             DeclareLaunchArgument(
                 'left_image',
-                default_value='/SM3/left/image_raw',
+                default_value='left/image_raw',
                 description='Left camera info topic'
             ),
             DeclareLaunchArgument(
                 'right_image',
-                default_value='/SM3/right/image_raw',
+                default_value='right/image_raw',
                 description='Right camera info topic'
             ),
             DeclareLaunchArgument(
                 'point_cloud',
-                default_value='pointcloud',
+                default_value='SM3/pointcloud',
                 description='Point cloud topic'
             ),
             DeclareLaunchArgument(
@@ -34,7 +34,12 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 'n_images',
-                default_value='15',
+                default_value='5',
+                description='Number of images to acquire'
+            ),
+            DeclareLaunchArgument(
+                'window_size',
+                default_value='3',
                 description='Number of images to acquire'
             ),
             DeclareLaunchArgument(
@@ -44,7 +49,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 'camera_frame_id',
-                default_value='/SM3/left_camera_link',
+                default_value='Active/left_camera_link',
                 description='Camera frame ID'
             ),
             Node(
@@ -56,6 +61,7 @@ def generate_launch_description():
                 parameters=[
                     {'num_images': LaunchConfiguration('n_images'),
                      'yaml_path': LaunchConfiguration('yaml_path'),
+                     'window_size': LaunchConfiguration('window_size'),
                      'camera_frame_id': LaunchConfiguration('camera_frame_id')}
                 ],
                 remappings=[

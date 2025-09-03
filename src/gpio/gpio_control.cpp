@@ -115,7 +115,8 @@ private:
         }
 
         float angle = msg->data;
-        RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
+        // RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
+
         if (angle == 400.0 || angle == -400.0) {
             RCLCPP_INFO(this->get_logger(), "Continuous rotation mode");
             keep_rotating_ = false;
@@ -147,29 +148,28 @@ private:
             std::reverse(step_sequence_ccw.begin(), step_sequence_ccw.end());
 
             rotation_thread_ = std::thread([this, step_sequence, step_sequence_ccw](){
-                while (keep_rotating_) {
-                    // Rotate N degrees counter-clockwise
-                    int steps = static_cast<int>((110 / 360.0) * steps_per_revolution_);
-                    // std::reverse(step_sequence.begin(), step_sequence.end());
-                    for (int i = 0; i < steps; ++i) {
-                        for(const auto& step : step_sequence){
+                int max_steps = static_cast<int>((110.0 / 360.0) * steps_per_revolution_);
+            int step_counter = 0;
+            bool clockwise = false;
+            while (keep_rotating_) {
+                // Choose direction
+                const auto& seq = clockwise ? step_sequence : step_sequence_ccw;
+                for (int i = 0; i < 10 && keep_rotating_; ++i) { // 10 steps per cycle
+                    for (const auto& step : seq) {
                         for (size_t j = 0; j < gpio_lines_.size(); ++j) {
                             gpiod_line_set_value(gpio_lines_[j], step[j]);
                         }
-                    }
                         std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
                     }
-
-                    for (int i = 0; i < (steps); ++i) {
-                        for(const auto& step : step_sequence_ccw){
-                            for (size_t j = 0; j < gpio_lines_.size(); ++j) {
-                                gpiod_line_set_value(gpio_lines_[j], step[j]);
-                            }
-                        }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                    step_counter++;
+                    if (step_counter >= max_steps) {
+                        clockwise = !clockwise; // Switch direction
+                        step_counter = 0;
+                        break;
                     }
                 }
-            });
+            }
+        });
 
         }
         else {
