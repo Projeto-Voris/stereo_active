@@ -83,6 +83,7 @@ install(PROGRAMS
         scripts/project_pattern.py
         scripts/project_evaluation.py
         scripts/project_white.py
+        scripts/inv_correl_proj_node.py
         DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)
