@@ -168,7 +168,7 @@ class InverseTriangulationNode(Node):
         self.count = 1
         self.left_images, self.right_images = [], []
         float_msg = Float32()
-        float_msg.data = 10/1024*360  # Example value
+        float_msg.data = 10/2048*360  # Example value
 
         # Call laser service
         laser_request = SetBool.Request()
@@ -195,7 +195,7 @@ class InverseTriangulationNode(Node):
         laser_request.data = False  # Turn off the laser
         future_laser = self.laser_client.call_async(laser_request)
         rclpy.spin_until_future_complete(self, future_laser)
-        float_msg.data = -10*(self.num_images+4)/1024*360  # Example value
+        float_msg.data = -10*(self.num_images+4)/2048*360  # Example value
         self.motor_angle_pub.publish(float_msg)
 
         if future_laser.result() is not None:
@@ -328,8 +328,8 @@ class InverseTriangulationNode(Node):
         filtered_points = transformed_xyz[mask]
 
         # Obtém os limites globais dos pontos
-        self.zmin = np.min(filtered_points[:, 2]) - 50  # Consider only Z values
-        self.zmax = np.max(filtered_points[:, 2]) + 50  # Consider only Z values
+        self.zmin = np.min(filtered_points[:, 2]) - 10  # Consider only Z values
+        self.zmax = np.max(filtered_points[:, 2]) + 10  # Consider only Z values
         # self.get_logger().info(f'Z range: ({self.zmin:.2f}, {self.zmax:.2f})')
 
     def do_transform_matrix(self, msg):

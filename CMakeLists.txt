@@ -34,13 +34,9 @@ set(LIBNOISE_INCLUDE_DIRS "/usr/local/include")
 set(LIBNOISE_LIBRARIES "/usr/local/lib/libnoise-static.a")
 include_directories(include ${LIBNOISE_INCLUDE_DIRS})
 
-add_executable(gpio_control src/gpio/trigger_laser_control.cpp)
+add_executable(gpio_control src/gpio/gpio_control.cpp)
 target_link_libraries(gpio_control ${GPIOD_LIBRARIES})
 ament_target_dependencies(gpio_control rclcpp std_msgs std_srvs)
-
-add_executable(motor_control src/gpio/motor_control.cpp)
-target_link_libraries(motor_control ${GPIOD_LIBRARIES})
-ament_target_dependencies(motor_control rclcpp std_msgs std_srvs)
 
 add_executable(dc_pub src/gpio/dc_publisher.cpp)
 ament_target_dependencies(dc_pub rclcpp std_msgs)  
@@ -60,7 +56,7 @@ ament_target_dependencies(stereo_image_subscriber rclcpp sensor_msgs cv_bridge)
 
 install(TARGETS 
         gpio_control
-        motor_control
+        #motor_control
         dc_pub
         stereo_acq
         noise_image
