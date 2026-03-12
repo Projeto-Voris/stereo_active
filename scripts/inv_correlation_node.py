@@ -28,7 +28,7 @@ class InverseTriangulationNode(Node):
         self.get_logger().info('InverseTriangulationNode has been started.')
 
         # Parameters declaration
-        self.declare_parameter('num_images', 5)
+        self.declare_parameter('num_images', 10)
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
         self.declare_parameter('tile', 2)
         self.declare_parameter('climp', 6.0)
@@ -179,13 +179,14 @@ class InverseTriangulationNode(Node):
         # If laser service was successful, trigger the camera
         if future_laser.result() is not None:
             self.get_logger().info('Laser turned on')
-            for n in range(self.num_images+4):
+            for n in range(self.num_images):
                 self.motor_angle_pub.publish(float_msg)
                 trigger_request = Trigger.Request()
                 future = self.gpio_client.call_async(trigger_request)
                 rclpy.spin_until_future_complete(self, future)
                 if future.result() is not None:
-                    time.sleep(0.01)
+                    #self.get_logger().info(f'Image {n+1} captured')
+                    time.sleep(0.01) # exposition time of camera
                 else:
                     self.get_logger().error('Service call failed')
 
@@ -195,7 +196,7 @@ class InverseTriangulationNode(Node):
         laser_request.data = False  # Turn off the laser
         future_laser = self.laser_client.call_async(laser_request)
         rclpy.spin_until_future_complete(self, future_laser)
-        float_msg.data = -10*(self.num_images+4)/2048*360  # Example value
+        float_msg.data = -10*(self.num_images)/2048*360  # Example value
         self.motor_angle_pub.publish(float_msg)
 
         if future_laser.result() is not None:

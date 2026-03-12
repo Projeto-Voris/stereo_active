@@ -210,7 +210,7 @@ private:
     void trigger_cb(const std_srvs::srv::Trigger::Request::SharedPtr request,
                     const std_srvs::srv::Trigger::Response::SharedPtr response){
         gpiod_line_set_value(trigger_line, 1);
-        rclcpp::sleep_for(std::chrono::milliseconds(10));
+        rclcpp::sleep_for(std::chrono::microseconds(500));
         gpiod_line_set_value(trigger_line, 0);
         response->success = true;
     }
