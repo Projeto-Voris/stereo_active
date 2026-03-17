@@ -39,6 +39,7 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('radius', 15.0)
         self.declare_parameter('neighbours', 5)
         self.declare_parameter('crop_image_factor', 0.85)
+        self.declare_parameter('steps', 10)
 
 
         self.declare_parameter('save_filename', "correlation_points")
@@ -163,12 +164,13 @@ class InverseTriangulationNode(Node):
         Service callback to get stereo images
         """
         self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
+        steps = self.get_parameter('steps').get_parameter_value().integer_value
         self.service_requet = True
 
         self.count = 1
         self.left_images, self.right_images = [], []
         float_msg = Float32()
-        float_msg.data = 10/2048*360  # Example value
+        float_msg.data = steps/2048*360  # Example value
 
         # Call laser service
         laser_request = SetBool.Request()
@@ -196,7 +198,7 @@ class InverseTriangulationNode(Node):
         laser_request.data = False  # Turn off the laser
         future_laser = self.laser_client.call_async(laser_request)
         rclpy.spin_until_future_complete(self, future_laser)
-        float_msg.data = -10*(self.num_images)/2048*360  # Example value
+        float_msg.data = -steps*(self.num_images)/2048*360  # Example value
         self.motor_angle_pub.publish(float_msg)
 
         if future_laser.result() is not None:

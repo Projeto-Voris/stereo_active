@@ -38,6 +38,11 @@ def generate_launch_description():
                 description='Number of images to acquire'
             ),
             DeclareLaunchArgument(
+                'steps',
+                default_value='10',
+                description='Number of steps of step_motor'
+            ),
+            DeclareLaunchArgument(
                 'window_size',
                 default_value='3',
                 description='Number of images to acquire'
@@ -62,6 +67,7 @@ def generate_launch_description():
                     {'num_images': LaunchConfiguration('n_images'),
                      'yaml_path': LaunchConfiguration('yaml_path'),
                      'window_size': LaunchConfiguration('window_size'),
+                     'steps': LaunchConfiguration('steps'),
                      'camera_frame_id': LaunchConfiguration('camera_frame_id')}
                 ],
                 remappings=[

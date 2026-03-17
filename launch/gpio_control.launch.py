@@ -17,7 +17,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'step_delay',
-            default_value='10',
+            default_value='3500',
             description='Delay between steps in ms'
         ),
         DeclareLaunchArgument(  

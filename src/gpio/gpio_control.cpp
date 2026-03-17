@@ -18,7 +18,7 @@ public:
         // Declare parameters
         this->declare_parameter<std::string>("stepping_mode", "full"); // full or half
         this->declare_parameter<int>("steps_per_revolution", 2048); // 4096 - half, 2048 - full
-        this->declare_parameter<int>("delay", 10); // Delay in milliseconds
+        this->declare_parameter<int>("delay", 3500); // Delay in microseconds
 
 
         // Get parameters
@@ -134,7 +134,7 @@ private:
                 for (size_t j = 0; j < gpio_lines_.size(); ++j) {
                     gpiod_line_set_value(gpio_lines_[j], step[j]);
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                std::this_thread::sleep_for(std::chrono::microseconds(delay_));
                 }
             }
             });
@@ -159,7 +159,7 @@ private:
                         for (size_t j = 0; j < gpio_lines_.size(); ++j) {
                             gpiod_line_set_value(gpio_lines_[j], step[j]);
                         }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                        std::this_thread::sleep_for(std::chrono::microseconds(delay_));
                     }
                     step_counter++;
                     if (step_counter >= max_steps) {
@@ -196,7 +196,7 @@ private:
                 for (size_t j = 0; j < gpio_lines_.size(); ++j) {
                     gpiod_line_set_value(gpio_lines_[j], step[j]);
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+                std::this_thread::sleep_for(std::chrono::microseconds(delay_));
             }
         }
     }
