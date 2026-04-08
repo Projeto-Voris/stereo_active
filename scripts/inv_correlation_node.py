@@ -51,7 +51,7 @@ class InverseTriangulationNode(Node):
         self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
         
         self.get_logger().info(f'Number of images to be captured: {self.num_images} with kernel {kernel}x{kernel}')
-
+        
         # Initialize the InverseTriangulation class
         self.zscan = SpatialCorrelator(yaml_file=self.yaml_file)
         self.bridge = CvBridge()
@@ -60,20 +60,16 @@ class InverseTriangulationNode(Node):
         self.right_images = []
 
         # Initialize the subscribers
-        self.left_image_sub = message_filters.Subscriber(self, Image, 'left/image')
-        self.right_image_sub = message_filters.Subscriber(self, Image, 'right/image')
+        self.left_queue = []
+        self.right_queue = []
+
+        self.left_image_sub = self.create_subscription(Image, 'left/image', self.left_image_cb, 10)
+        self.right_image_sub = self.create_subscription(Image, 'right/image', self.right_image_cb, 10)
         self.passive_pcl_sub = self.create_subscription(PointCloud2, '/Passive/disparity/pointcloud', self.z_limits_global, 10)
         
         # Initialize the publisher
         self.motor_angle_pub = self.create_publisher(Float32, 'motor/angle', 10)
         self.pcl_publisher = self.create_publisher(PointCloud2, 'pointcloud', 10)
-
-
-        # Synchronize the stereo images
-        self.ts = message_filters.ApproximateTimeSynchronizer([self.left_image_sub, self.right_image_sub],
-                                                    queue_size=10, slop=0.05)
-        self.ts.registerCallback(self.stereo_images_callback)
-
 
         # Create mutually exclusive callback groups
         self.callback_group_srv = MutuallyExclusiveCallbackGroup()
@@ -101,6 +97,28 @@ class InverseTriangulationNode(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+    def left_image_cb(self, msg):
+        
+        # timer do atraso da imagem
+        tempo_origem_ns = (msg.header.stamp.sec * 1_000_000_000) + msg.header.stamp.nanosec
+        tempo_chegada_ns = self.get_clock().now().nanoseconds
+        atraso = (tempo_chegada_ns - tempo_origem_ns ) / 1_000_000
+        self.get_logger().info(f'Atraso trafego foto: {atraso:.3f} ms')
+
+        self.left_queue.append(msg)
+        self.match_images() 
+
+    def right_image_cb(self, msg):
+        self.right_queue.append(msg)
+        self.match_images() 
+    
+    def match_images(self):
+        if len(self.left_queue) > 0 and len(self.right_queue) > 0:
+            left_msg = self.left_queue.pop(0)
+            right_msg = self.right_queue.pop(0)
+            self.stereo_images_callback(left_msg, right_msg)
+            
+        
     def timer_callback(self):
         tile = self.get_parameter('tile').get_parameter_value().integer_value
         climp = self.get_parameter('climp').get_parameter_value().double_value
@@ -116,7 +134,7 @@ class InverseTriangulationNode(Node):
     
     def save_cb(self, request, response):
         """
-        Service callback to view the point cloud
+        Service callback to view the images
         """
         if request:
             self.get_logger().info('Saving images')

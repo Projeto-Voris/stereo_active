@@ -9,6 +9,7 @@
 #include <gpiod.h>
 #include <iostream>
 #include <atomic>
+#include "stereo_active/srv/move_motor.hpp"
 
 class GpioControl : public rclcpp::Node
 {
@@ -64,10 +65,14 @@ public:
 
         }
 
-        // Subscribe to the topic
+        /* Subscribe to the topic
         subscription_ = this->create_subscription<std_msgs::msg::Float32>(
             "motor/angle", 10, std::bind(&GpioControl::move_motor, this, std::placeholders::_1));
-    
+        */
+
+        motor_srv_ = this->create_service<stereo_active::srv::MoveMotor>(
+            "move_motor", std::bind(&GpioControl::move_motor_cb, this, std::placeholders::_1, std::placeholders::_2));
+
         trigger_srv_ = this->create_service<std_srvs::srv::Trigger>(
             "trigger", std::bind(&GpioControl::trigger_cb, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -98,7 +103,9 @@ public:
     }
 
 private:
-    void move_motor(const std_msgs::msg::Float32::SharedPtr msg){
+    void move_motor_cb(const stereo_active::srv::MoveMotor::Request::SharedPtr request,
+                 stereo_active::srv::MoveMotor::Response::SharedPtr response){
+
         // Get parameters
         this->get_parameter("steps_per_revolution", steps_per_revolution_);
         this->get_parameter("stepping_mode", stepping_mode_);
@@ -114,7 +121,7 @@ private:
                 {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 0, 0, 1}, {1, 0, 0, 1}};
         }
 
-        float angle = msg->data;
+        float angle = request->angle;
         RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
 
         if (angle == 400.0 || angle == -400.0) {
@@ -181,6 +188,8 @@ private:
             int steps = static_cast<int>((angle / 360.0) * steps_per_revolution_);
             if (steps == 0) {
                 stop_motor();
+                response->success = true;
+                RCLCPP_INFO(this->get_logger(), "Motor stopped (0 angle received).");
                 return;
             }
 
@@ -198,7 +207,10 @@ private:
                 }
                 std::this_thread::sleep_for(std::chrono::microseconds(delay_));
             }
+            RCLCPP_INFO(this->get_logger(), "Motor movement complete.");
         }
+        
+        response->success = true;
     }
 
     void stop_motor(){
@@ -235,7 +247,6 @@ private:
         }
     }
 
-
     std::vector<int> gpio_pins_ = {105, 106, 41, 43, 85, 144}; // Replace with your actual GPIO pin numbers
     std::string gpio_chip_ = "/dev/gpiochip0";
     std::string stepping_mode_;
@@ -247,9 +258,10 @@ private:
     int delay_;
     int steps_per_revolution_;
     
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_;
+    //rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_;
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr laser_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr trigger_srv_;
+    rclcpp::Service<stereo_active::srv::MoveMotor>::SharedPtr motor_srv_;
 
     std::atomic<bool> keep_rotating_;
     std::thread rotation_thread_;
