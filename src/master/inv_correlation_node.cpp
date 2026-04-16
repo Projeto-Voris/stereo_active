@@ -3,13 +3,15 @@
 #include <std_srvs/srv/set_bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/int16.hpp>
 #include "stereo_active/srv/move_motor.hpp"
 #include <mutex>
 #include <vector>
 #include <deque>
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
-#include <filesystem> 
+#include <filesystem>
+#include <cstdlib>
 
 /*
 tarefas realizadas por inv_correlation_node.py que devem ser realizadas agora por esse cpp:
@@ -34,7 +36,7 @@ public:
         steps_ = this->get_parameter("steps").as_int();
 
         //publisher
-        motor_angle_pub_ = this->create_publisher<std_msgs::msg::Float32>("motor/angle", 10);
+        handshake_images_pub_ = this->create_publisher<std_msgs::msg::Int16>("handshake_images", 10);
 
         // subscribers
         left_sub_ = this->create_subscription<sensor_msgs::msg::Image>("left/image", 10, std::bind(&InvCorrelationNode::left_image_cb, this, std::placeholders::_1));
@@ -42,6 +44,7 @@ public:
 
         // services
         service_request_= false;
+        perform_correl_ = false;
         cb_group_srv_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
         cb_group_trigger_client_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
         cb_group_laser_client_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -52,6 +55,10 @@ public:
             std::bind(&InvCorrelationNode::get_images_srv, this, std::placeholders::_1, std::placeholders::_2),
             rmw_qos_profile_services_default,
             cb_group_srv_
+        );
+        save_im_srv_ = this->create_service<std_srvs::srv::Trigger>(
+            "save_images_ssd",
+            std::bind(&InvCorrelationNode::save_images_ssd_srv, this, std::placeholders::_1, std::placeholders::_2)
         );
 
         gpio_client_ = this->create_client<std_srvs::srv::Trigger>(
@@ -87,6 +94,7 @@ private:
     std::mutex mutex_;
     uint8_t count_;
     bool service_request_;
+    bool perform_correl_;
     int num_images_;
     int steps_;
     
@@ -97,12 +105,13 @@ private:
     rclcpp::CallbackGroup::SharedPtr cb_group_motor_client_;
     
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_im_srv_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr gpio_client_;
     rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr laser_client_;
     rclcpp::Client<stereo_active::srv::MoveMotor>::SharedPtr motor_client_;
 
     //publisher
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr motor_angle_pub_;
+    rclcpp::Publisher<std_msgs::msg::Int16>::SharedPtr handshake_images_pub_;
 
     void left_image_cb(const sensor_msgs::msg::Image::ConstSharedPtr msg){
         { // mutex apenas para acesso as filas compartilhadas
@@ -171,7 +180,7 @@ private:
 
         for(u_int8_t i=0; i<num_images_; i++){
             try{
-                auto cv_ptr_left = cv_bridge::toCvShare(captured_left_images_[i], "mono8"); // preto em branco
+                auto cv_ptr_left = cv_bridge::toCvShare(captured_left_images_[i], "mono8"); // preto e branco
                 auto cv_ptr_right = cv_bridge::toCvShare(captured_right_images_[i], "mono8");
 
                 char left_filename[256], right_filename[256];
@@ -181,26 +190,59 @@ private:
                 cv::imwrite(left_filename, cv_ptr_left->image);
                 cv::imwrite(right_filename, cv_ptr_right->image);
 
-                RCLCPP_INFO(this->get_logger(), "Images saved successfully");
-
-                captured_left_images_.clear();
-                captured_right_images_.clear();
-
             }catch(cv_bridge::Exception& e){
                 RCLCPP_ERROR(this->get_logger(), "cv_bridge: %s error", e.what());
                 return;
             }
-
         }
 
+        auto num_images = std_msgs::msg::Int16();
+        if (perform_correl_) { //identifica a realizacao ou nao do processamento via o sinal enviado do numero de imagens
+            num_images.data = num_images_;  // processa
+        } else {
+            num_images.data = -num_images_; // nao processa
+        }
         RCLCPP_INFO(this->get_logger(), "Images saved successfully");
+        handshake_images_pub_->publish(num_images);
 
+        captured_left_images_.clear();
+        captured_right_images_.clear();
+
+    }
+
+    void save_images_ssd_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request, std::shared_ptr<std_srvs::srv::Trigger::Response> response){
+        
+        const char* home_dir = std::getenv("HOME");
+        if (home_dir == nullptr) {
+            RCLCPP_ERROR(this->get_logger(), "Error on finding HOME directory.");
+            response->success = false;
+            response->message = "HOME not found";
+            return;
+        }
+
+        std::string ram_path = "/dev/shm/stereo_active/";
+        std::string destiny_path = std::string(home_dir) + "/Pictures/stereo_active_backup";
+        RCLCPP_INFO(this->get_logger(), "Saving Images ...");
+
+        try{
+            std::filesystem::create_directories(destiny_path);
+            std::filesystem::copy(ram_path, destiny_path, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+            response->success = true;
+            response->message = "Images saved";
+            RCLCPP_INFO(this->get_logger(), "Images have been saved");
+        }
+        catch(const std::filesystem::filesystem_error& e){
+            RCLCPP_ERROR(this->get_logger(), "Copy archives error: %s", e.what());
+            response->success = false;
+            response->message = "Copy archives error";
+        }
     }
 
     void get_images_srv(const std::shared_ptr<std_srvs::srv::SetBool::Request> request, std::shared_ptr<std_srvs::srv::SetBool::Response> response){
         
         count_=1;
         service_request_=true;
+        perform_correl_ = request->data;
         captured_left_images_.clear();
         captured_right_images_.clear();
 

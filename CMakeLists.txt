@@ -108,7 +108,7 @@ install(DIRECTORY
         DESTINATION lib/${PROJECT_NAME})
 
 install(PROGRAMS
-        scripts/inv_correlation_node.py
+        scripts/new_inv_correlation_node.py
         scripts/inv_correl_read.py
         scripts/motor_evaluation.py
         scripts/project_pattern.py
