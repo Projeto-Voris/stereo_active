@@ -122,7 +122,7 @@ private:
         }
 
         float angle = request->angle;
-        RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
+        //RCLCPP_INFO(this->get_logger(), "Moving motor to angle: %f", angle);
 
         if (angle == 400.0 || angle == -400.0) {
             RCLCPP_INFO(this->get_logger(), "Continuous rotation mode");

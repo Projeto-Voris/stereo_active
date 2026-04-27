@@ -5,13 +5,13 @@
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/int16.hpp>
 #include "stereo_active/srv/move_motor.hpp"
-#include <mutex>
-#include <vector>
-#include <deque>
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 #include <filesystem>
 #include <cstdlib>
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/exact_time.h>
 
 /*
 tarefas realizadas por inv_correlation_node.py que devem ser realizadas agora por esse cpp:
@@ -27,28 +27,38 @@ public:
     explicit InvCorrelationNode(const rclcpp::NodeOptions & options) : Node("inverse_correlation_node", options){
         RCLCPP_INFO(this->get_logger(), "InvCorrelationNode.cpp has been started");
         
-        count_= 1;
+        count_= 0;
+
+        // pastas na RAM onde ficam salvas as imagens
+        std::filesystem::create_directories("/dev/shm/stereo_active/left");
+        std::filesystem::create_directories("/dev/shm/stereo_active/right");
 
         // parametros
         this->declare_parameter<int>("num_images",10);
         this->declare_parameter<int>("steps", 20);
-        num_images_ = this->get_parameter("num_images").as_int();
+        num_images_ = this->get_parameter("num_images").as_int() + 2; // +2 porque a(s) primeira(s) imagem sempre e'/sao perdida(s)
         steps_ = this->get_parameter("steps").as_int();
 
         //publisher
         handshake_images_pub_ = this->create_publisher<std_msgs::msg::Int16>("handshake_images", 10);
 
+        //Subscribers Quality of Service
+        auto qos = rclcpp::SensorDataQoS();
+        qos.keep_last(15);
+        rclcpp::SubscriptionOptions sub_options;    
+
         // subscribers
-        left_sub_ = this->create_subscription<sensor_msgs::msg::Image>("left/image", 10, std::bind(&InvCorrelationNode::left_image_cb, this, std::placeholders::_1));
-        right_sub_ = this->create_subscription<sensor_msgs::msg::Image>("right/image", 10, std::bind(&InvCorrelationNode::right_image_cb, this, std::placeholders::_1));
+        left_sub_.subscribe(this, "left/image", qos.get_rmw_qos_profile(), sub_options);
+        right_sub_.subscribe(this, "right/image", qos.get_rmw_qos_profile(), sub_options);
+        sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(15), left_sub_, right_sub_);
+        sync_->registerCallback(std::bind(&InvCorrelationNode::images_cb, this, std::placeholders::_1, std::placeholders::_2));
 
         // services
         service_request_= false;
         perform_correl_ = false;
         cb_group_srv_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-        cb_group_trigger_client_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-        cb_group_laser_client_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-        cb_group_motor_client_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        //client
+        cb_group_client_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
         srv_ = this->create_service<std_srvs::srv::SetBool>(
             "correlation_process", 
@@ -64,34 +74,31 @@ public:
         gpio_client_ = this->create_client<std_srvs::srv::Trigger>(
             "trigger",
             rmw_qos_profile_services_default,
-            cb_group_trigger_client_
+            cb_group_client_
         );
 
         laser_client_ = this->create_client<std_srvs::srv::SetBool>(
             "laser",
             rmw_qos_profile_services_default,
-            cb_group_laser_client_
+            cb_group_client_
         );
         motor_client_ = this->create_client<stereo_active::srv::MoveMotor>(
             "move_motor", 
             rmw_qos_profile_services_default,
-            cb_group_motor_client_
+            cb_group_client_
         );
     }
 
 private:
-    
+
+    using SyncPolicy = message_filters::sync_policies::ExactTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image>;
+
     //atributos
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr left_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr right_sub_;
+    message_filters::Subscriber<sensor_msgs::msg::Image> left_sub_;
+    message_filters::Subscriber<sensor_msgs::msg::Image> right_sub_;
+    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
+    rclcpp::TimerBase::SharedPtr watchdog_timer_;
 
-    std::deque<sensor_msgs::msg::Image::ConstSharedPtr> left_queue_; 
-    std::deque<sensor_msgs::msg::Image::ConstSharedPtr> right_queue_;
-
-    std::vector<sensor_msgs::msg::Image::ConstSharedPtr> captured_left_images_;
-    std::vector<sensor_msgs::msg::Image::ConstSharedPtr> captured_right_images_;
-
-    std::mutex mutex_;
     uint8_t count_;
     bool service_request_;
     bool perform_correl_;
@@ -100,9 +107,7 @@ private:
     
     // services
     rclcpp::CallbackGroup::SharedPtr cb_group_srv_;
-    rclcpp::CallbackGroup::SharedPtr cb_group_trigger_client_;
-    rclcpp::CallbackGroup::SharedPtr cb_group_laser_client_;
-    rclcpp::CallbackGroup::SharedPtr cb_group_motor_client_;
+    rclcpp::CallbackGroup::SharedPtr cb_group_client_;
     
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_im_srv_;
@@ -113,100 +118,72 @@ private:
     //publisher
     rclcpp::Publisher<std_msgs::msg::Int16>::SharedPtr handshake_images_pub_;
 
-    void left_image_cb(const sensor_msgs::msg::Image::ConstSharedPtr msg){
-        { // mutex apenas para acesso as filas compartilhadas
-        std::lock_guard<std::mutex> lock(mutex_);
-        left_queue_.push_back(msg);
+    void send_handshake(int count_to_send) {
+        //RCLCPP_INFO(this->get_logger(), "Enviando handshake com %d imagens.", count_to_send);
+        auto msg = std_msgs::msg::Int16();
+        if (perform_correl_) {
+            msg.data = count_to_send;
+        } else {
+            msg.data = -count_to_send;
         }
-        match_images();
-
-    }
-
-    void right_image_cb(const sensor_msgs::msg::Image::ConstSharedPtr msg){
-        {
-        std::lock_guard<std::mutex> lock(mutex_);
-        right_queue_.push_back(msg);
-        }
-        match_images();
-    }
-
-    void match_images(){
-        sensor_msgs::msg::Image::ConstSharedPtr right_ptr;
-        sensor_msgs::msg::Image::ConstSharedPtr left_ptr;
-
-        while (true){
-            { // mutex
-                std::lock_guard<std::mutex> lock(mutex_);
-
-                if(!(left_queue_.empty()) && !(right_queue_.empty() )){ // verifica se ha pelo menos uma imagem em cada fila
-                    left_ptr = left_queue_.front();
-                    right_ptr = right_queue_.front();
-                    left_queue_.pop_front();
-                    right_queue_.pop_front();
-                }
-                else{
-                    break; // sai do loop
-                }
-            } // mutex
-
-            this->stereo_images_accumulator(left_ptr, right_ptr);
-        }
-
-    }
-
-    void stereo_images_accumulator(const sensor_msgs::msg::Image::ConstSharedPtr left_img_ptr, const sensor_msgs::msg::Image::ConstSharedPtr right_img_ptr){
+        handshake_images_pub_->publish(msg);
         
-        if(service_request_ == false){
+        service_request_ = false;
+        count_ = 0; // Prepara para a próxima
+
+        // Desarma o cão de guarda, se ele existir
+        if (watchdog_timer_) {
+            watchdog_timer_->cancel();
+        }
+    }
+
+    void watchdog_timeout_cb() {
+        RCLCPP_WARN(this->get_logger(), "Tempo de espera esgotado. Salvamos apenas %d imagens", count_);
+        send_handshake(count_); // Envia o que tiver e destrava o Python
+    }
+
+    void images_cb(const sensor_msgs::msg::Image::ConstSharedPtr& left_msg,
+                   const sensor_msgs::msg::Image::ConstSharedPtr& right_msg) { // salva imagens num arquivo temporario (ja faz parte do pos process))
+                
+        //RCLCPP_INFO(this->get_logger(), "images_cb started");
+
+        if (!service_request_){
+            RCLCPP_INFO(this->get_logger(), "service_request_ false");
             return;
         }
 
-        captured_left_images_.push_back(left_img_ptr);
-        captured_right_images_.push_back(right_img_ptr);
+        try{
+            
+            cv::Mat left_mat = cv_bridge::toCvShare(left_msg, "mono8")->image;
+            cv::Mat right_mat = cv_bridge::toCvShare(right_msg, "mono8")->image;
 
-        if (count_ < num_images_){
-            count_++;
-        }else if (count_ == num_images_){
-            RCLCPP_INFO(this->get_logger(),"Captured stereo images: %d/%d", count_, num_images_);
-            this->save_images();
-            service_request_=false;
-        }
-    }
-
-    void save_images(){ // salva imagens num arquivo temporario (ja faz parte do pos process)
-
-        std::string base_path = "/dev/shm/stereo_active/";
-        std::filesystem::create_directories(base_path + "left");
-        std::filesystem::create_directories(base_path + "right");
-
-        for(u_int8_t i=0; i<num_images_; i++){
-            try{
-                auto cv_ptr_left = cv_bridge::toCvShare(captured_left_images_[i], "mono8"); // preto e branco
-                auto cv_ptr_right = cv_bridge::toCvShare(captured_right_images_[i], "mono8");
-
-                char left_filename[256], right_filename[256];
-                snprintf(left_filename, sizeof(left_filename), "%sleft/L%02d.png", base_path.c_str(), i + 1);
-                snprintf(right_filename, sizeof(right_filename), "%sright/R%02d.png", base_path.c_str(), i + 1);
-
-                cv::imwrite(left_filename, cv_ptr_left->image);
-                cv::imwrite(right_filename, cv_ptr_right->image);
-
-            }catch(cv_bridge::Exception& e){
-                RCLCPP_ERROR(this->get_logger(), "cv_bridge: %s error", e.what());
+            if (left_mat.empty() || right_mat.empty()) {
+                RCLCPP_WARN(this->get_logger(), "frame vazio recebido");
                 return;
             }
-        }
 
-        auto num_images = std_msgs::msg::Int16();
-        if (perform_correl_) { //identifica a realizacao ou nao do processamento via o sinal enviado do numero de imagens
-            num_images.data = num_images_;  // processa
-        } else {
-            num_images.data = -num_images_; // nao processa
-        }
-        RCLCPP_INFO(this->get_logger(), "Images saved successfully");
-        handshake_images_pub_->publish(num_images);
+            std::string base_path = "/dev/shm/stereo_active/";
+            char left_filename[256], right_filename[256];
+            
+            
+            snprintf(left_filename, sizeof(left_filename), "%sleft/L%02d.png", base_path.c_str(), count_+1);
+            snprintf(right_filename, sizeof(right_filename), "%sright/R%02d.png", base_path.c_str(), count_+1);
 
-        captured_left_images_.clear();
-        captured_right_images_.clear();
+            cv::imwrite(left_filename, left_mat);
+            cv::imwrite(right_filename, right_mat);
+
+            count_++;
+            //RCLCPP_INFO(this->get_logger(), "[C++] Par %d recebido pelo nó. L_Stamp: %d.%d", count_, left_msg->header.stamp.sec, left_msg->header.stamp.nanosec);
+
+            if (count_ == num_images_-2) {
+                RCLCPP_WARN(this->get_logger(), "Sucesso, todas as %d imagens chegaram e foram salvas.", count_);
+                send_handshake(count_);
+            }
+
+        } catch (cv_bridge::Exception& e){
+            RCLCPP_ERROR(this->get_logger(), "cv_bridge: %s error", e.what());
+            return;
+        }
 
     }
 
@@ -240,11 +217,9 @@ private:
 
     void get_images_srv(const std::shared_ptr<std_srvs::srv::SetBool::Request> request, std::shared_ptr<std_srvs::srv::SetBool::Response> response){
         
-        count_=1;
+        count_=0;
         service_request_=true;
         perform_correl_ = request->data;
-        captured_left_images_.clear();
-        captured_right_images_.clear();
 
         float angulo_motor = (steps_ / 2048.0f) * 360.0f;
 
@@ -277,7 +252,8 @@ private:
                                 auto result_trigger = future_trigger.get();
 
                                 if(result_trigger->success){
-                                    rclcpp::sleep_for(std::chrono::milliseconds(10)); // espera o time exposition da foto
+                                    //RCLCPP_INFO(this->get_logger(), "[C++] Trigger %d enviado", i+1);
+                                    rclcpp::sleep_for(std::chrono::milliseconds(10)); // espera o time exposition da foto + tempo extra
                                 }
 
                             }else{
@@ -323,7 +299,14 @@ private:
                 if (future_move_motor_return.wait_for(std::chrono::seconds(5)) == std::future_status::ready){ 
                      auto result_move_motor_return = future_move_motor_return.get();
                         if (result_move_motor_return->success){ 
-                            RCLCPP_INFO(this->get_logger(), "Varredura completa");
+                            RCLCPP_INFO(this->get_logger(), "Motor terminou, aguardando as imagens");
+                            if (service_request_) { //cria o watchdog apenas se o handshake nao tiver sido enviado
+                                watchdog_timer_ = this->create_wall_timer(
+                                std::chrono::milliseconds(2500),
+                                std::bind(&InvCorrelationNode::watchdog_timeout_cb, this),
+                                cb_group_srv_ // Usa o mesmo grupo para ser thread-safe
+                            );
+                            }
                             response->success = true;
                             response->message = "Varredura completa";
                         }

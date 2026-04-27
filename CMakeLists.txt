@@ -73,7 +73,7 @@ ament_target_dependencies(stereo_image_subscriber rclcpp sensor_msgs cv_bridge)
 
 add_library(inv_correlation_node_component SHARED src/master/inv_correlation_node.cpp)
 target_link_libraries(inv_correlation_node_component ${OpenCV_LIBS} "${cpp_typesupport_target}")
-ament_target_dependencies(inv_correlation_node_component rclcpp_components rclcpp std_srvs sensor_msgs std_msgs cv_bridge)
+ament_target_dependencies(inv_correlation_node_component rclcpp_components rclcpp std_srvs sensor_msgs std_msgs cv_bridge message_filters)
 
 rclcpp_components_register_node(
     inv_correlation_node_component

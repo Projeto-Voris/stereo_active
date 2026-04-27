@@ -24,7 +24,7 @@ import tf_transformations
 class InverseTriangulationNode(Node):
     def __init__(self):
         super().__init__('inverse_triangulation_node')
-        self.get_logger().info('InverseTriangulationNode has been started.')
+        self.get_logger().info('InverseTriangulationNode.py has been started.')
 
         # Parameters declaration
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
@@ -39,12 +39,13 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('crop_image_factor', 0.85)
         self.declare_parameter('save_filename', "correlation_points")
         self.declare_parameter('debug_save_points', False)
-
+        self.declare_parameter('n_images', 10)
         self.declare_parameter('camera_frame_id', 'SM3/left_camera_link')
+
         self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
-        #kernel = self.get_parameter('window_size').get_parameter_value().integer_value
-        
-        #self.get_logger().info(f'Number of images to be captured: {self.num_images} with kernel {kernel}x{kernel}')
+        self.num_images = self.get_parameter('n_images').get_parameter_value().integer_value
+        kernel = self.get_parameter('window_size').get_parameter_value().integer_value
+        self.get_logger().info(f'Number of images to be captured: {self.num_images} with kernel {kernel}x{kernel}')
         
         # Initialize the InverseTriangulation class
         self.zscan = SpatialCorrelator(yaml_file=self.yaml_file)
@@ -71,6 +72,7 @@ class InverseTriangulationNode(Node):
     def handshake_images_cb(self, msg):
         #importa as mensagens da memoria ram
 
+        #self.get_logger().info(f"Handshake do c++ concluido, num_images= {msg.data}")
         self.num_images = abs(msg.data)         # verifica o sinal do numero de img recebido para definir se realiza a correlacao
         self.perform_correl = msg.data > 0
         base_path = '/dev/shm/stereo_active/'

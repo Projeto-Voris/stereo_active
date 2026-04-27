@@ -19,7 +19,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 'n_images',
-                default_value='10',
+                default_value='20',
                 description='Number of images to acquire'
             ),
             DeclareLaunchArgument(
