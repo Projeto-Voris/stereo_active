@@ -4,6 +4,7 @@ import numpy as np
 import time
 import struct
 import torch
+import gc
 
 from SpatialCorrelation_torch import PyTorchStereoCorrel as SpatialCorrelator
 
@@ -109,6 +110,25 @@ class InverseTriangulationNode(Node):
             self.perform_correl = False
             self.left_images.clear()
             self.right_images.clear()
+            
+            
+            # --- Limpando a memoria
+            # 1. Cortamos as referências dos tensores dentro da classe PyTorch
+            self.zscan.left_images = None
+            self.zscan.right_images = None
+            self.zscan.grid = None
+            self.zscan.x_vals = None
+            self.zscan.y_vals = None
+            self.zscan.z_vals = None
+
+            # 2. Forçamos o Python a reconhecer que os objetos estão órfãos
+            gc.collect()
+            
+            # 3. Agora sim, esvaziamos a VRAM da Jetson
+            torch.cuda.empty_cache()
+            self.get_logger().info('Memoria limpa')
+            # -------------------------------
+            
 
     def spatial_3d_correl_process(self):
         """
@@ -165,7 +185,7 @@ class InverseTriangulationNode(Node):
         self.zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, 
                             xy_step=GRID_STEPS_2['xy'], z_step=GRID_STEPS_2['z'])
                         
-        xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5, method='correl')
+        xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5, method='correl') 
 
         
         filter_mask = corr_gpu > correl_thresh
@@ -181,6 +201,8 @@ class InverseTriangulationNode(Node):
 
         if save_points:
             np.savetxt('{}_{}.txt'.format(time.strftime("%Y%m%d"), filename), xyz_filtered_gpu.cpu().numpy(), fmt='%.6f')
+        
+        del xyz_gpu, corr_gpu, xyz_filtered_gpu, corr_filtered_gpu, final_xyz_gpu # limpando memoria
             
     def z_limits_global(self, points):
         
