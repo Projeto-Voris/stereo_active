@@ -28,41 +28,53 @@ public:
         this->get_parameter("delay", delay_);
 
         // Initialize GPIO lines
-        chip = gpiod_chip_open(gpio_chip_.c_str());
-        if (!chip) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open GPIO chip: %s", gpio_chip_.c_str());
-            throw std::runtime_error("Failed to open GPIO chip");
+        chip0 = gpiod_chip_open(gpio_chip0_.c_str());
+        if (!chip0) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to open GPIO chip: %s", gpio_chip0_.c_str());
+            throw std::runtime_error("Failed to open GPIO chip 0");
+        }
+
+        chip1 = gpiod_chip_open(gpio_chip1_.c_str());
+        if (!chip1) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to open GPIO chip: %s", gpio_chip1_.c_str());
+            if (chip0) gpiod_chip_close(chip0);
+            throw std::runtime_error("Failed to open GPIO chip 1");
         }
 
         for (int pin : gpio_pins_)
         {
-            struct gpiod_line *line = gpiod_chip_get_line(chip, pin);
+            struct gpiod_chip *current_chip = chip1;
+            if (pin == 85 || pin == 106) {
+                current_chip = chip0;
+            }
+
+            struct gpiod_line *line = gpiod_chip_get_line(current_chip, pin);
             if (!line) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to get GPIO line: %d", pin);
-                gpiod_chip_close(chip);
+                if (chip0) gpiod_chip_close(chip0);
+                if (chip1) gpiod_chip_close(chip1);
                 throw std::runtime_error("Failed to get GPIO line");
             }
-            if (pin == 85 || pin == 144){
-                if(pin == 144){ 
+            if (pin == 85 || pin == 106){
+                if(pin == 106){ 
                 laser_line = line; 
                     int ret_la = gpiod_line_request_output(laser_line, "laser", 0);
-                } // 144 = PAC.06 = GPIO09
+                } // 106 = PQ.06 = MCLK05
                 else{ 
                     trigger_line = line; 
                     int ret_tr = gpiod_line_request_output(trigger_line, "trigger", 0);
-                } // 85 = PN.01 = GPIO12
+                } // 85 = PN.01 = GPIO27
             }
             else{ 
                 gpio_lines_.push_back(line);
                 int ret = gpiod_line_request_output(line, "stepper_motor", 0);
                 if (ret < 0) {
                     RCLCPP_ERROR(this->get_logger(), "Failed to request line as output: %d", pin);
-                    gpiod_chip_close(chip);
+                    if (chip0) gpiod_chip_close(chip0);
+                    if (chip1) gpiod_chip_close(chip1);
                     throw std::runtime_error("Failed to request line as output");
                 } 
             }
-
-
         }
 
         /* Subscribe to the topic
@@ -99,7 +111,8 @@ public:
             gpiod_line_set_value(trigger_line, 0); // Set trigger line to 0 before releasing
             gpiod_line_release(trigger_line);
         }
-        gpiod_chip_close(chip);
+        if (chip0) gpiod_chip_close(chip0);
+        if (chip1) gpiod_chip_close(chip1);
     }
 
 private:
@@ -221,9 +234,11 @@ private:
 
     void trigger_cb(const std_srvs::srv::Trigger::Request::SharedPtr request,
                     const std_srvs::srv::Trigger::Response::SharedPtr response){
+        // RCLCPP_INFO(this->get_logger(), "Trigger service called! Sending pulse...");
         gpiod_line_set_value(trigger_line, 1);
         rclcpp::sleep_for(std::chrono::microseconds(500));
         gpiod_line_set_value(trigger_line, 0);
+        RCLCPP_INFO(this->get_logger(), "Trigger pulse sent.");
         response->success = true;
     }
 
@@ -247,11 +262,13 @@ private:
         }
     }
 
-    std::vector<int> gpio_pins_ = {105, 106, 41, 43, 85, 144}; // Replace with your actual GPIO pin numbers
-    std::string gpio_chip_ = "/dev/gpiochip0";
+    std::vector<int> gpio_pins_ = {1, 0, 8, 2, 85, 106}; // Replace with your actual GPIO pin numbers
+    std::string gpio_chip0_ = "/dev/gpiochip0";
+    std::string gpio_chip1_ = "/dev/gpiochip1";
     std::string stepping_mode_;
     std::vector<std::vector<int>> step_sequence_;
-    struct gpiod_chip *chip;
+    struct gpiod_chip *chip0 = nullptr;
+    struct gpiod_chip *chip1 = nullptr;
     std::vector<struct gpiod_line *> gpio_lines_;
     struct gpiod_line *laser_line;
     struct gpiod_line *trigger_line;

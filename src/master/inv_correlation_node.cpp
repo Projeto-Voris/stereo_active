@@ -148,7 +148,7 @@ private:
         //RCLCPP_INFO(this->get_logger(), "images_cb started");
 
         if (!service_request_){
-            RCLCPP_INFO(this->get_logger(), "service_request_ false");
+            // RCLCPP_INFO(this->get_logger(), "service_request_ false");
             return;
         }
 
