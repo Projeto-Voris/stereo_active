@@ -13,28 +13,13 @@ def generate_launch_description():
                 description='Namespace'
             ),
             DeclareLaunchArgument(
-                'left_image',
-                default_value='left/image_raw',
-                description='Left camera info topic'
-            ),
-            DeclareLaunchArgument(
-                'right_image',
-                default_value='right/image_raw',
-                description='Right camera info topic'
-            ),
-            DeclareLaunchArgument(
                 'point_cloud',
                 default_value='SM3/pointcloud',
                 description='Point cloud topic'
             ),
             DeclareLaunchArgument(
-                'motor_topic',
-                default_value='motor/angle',
-                description='Point cloud topic'
-            ),
-            DeclareLaunchArgument(
                 'n_images',
-                default_value='5',
+                default_value='20',
                 description='Number of images to acquire'
             ),
             DeclareLaunchArgument(
@@ -54,7 +39,7 @@ def generate_launch_description():
             ),
             Node(
                 package='stereo_active',
-                executable='inv_correlation_node.py',
+                executable='new_inv_correlation_node.py',
                 name='inverse_correlation_node',
                 namespace=LaunchConfiguration('namespace'),
                 output='screen',
@@ -65,10 +50,7 @@ def generate_launch_description():
                      'camera_frame_id': LaunchConfiguration('camera_frame_id')}
                 ],
                 remappings=[
-                    ('left/image', LaunchConfiguration('left_image')),
-                    ('right/image', LaunchConfiguration('right_image')),
                     ('pointcloud', LaunchConfiguration('point_cloud')),
-                    ('motor/angle', LaunchConfiguration('motor_topic'))
                 ]
             )
         ])

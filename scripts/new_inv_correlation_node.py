@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
-import os
 import cv2
 import numpy as np
 import time
 import struct
 import torch
+import gc
 
 from SpatialCorrelation_torch import PyTorchStereoCorrel as SpatialCorrelator
 
 import rclpy
 from rclpy.node import Node
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from sensor_msgs.msg import Image, PointCloud2, PointField
-from std_srvs.srv import Trigger, SetBool
-from std_msgs.msg import Float32
-from cv_bridge import CvBridge
+from sensor_msgs.msg import PointCloud2, PointField
+from std_msgs.msg import Int16
 from std_msgs.msg import Header
-import message_filters
 import sensor_msgs_py.point_cloud2 as pc2
 import tf2_ros
 import tf_transformations
+
+# retirar metodos que foram passados para cpp
+# importar as imagens direto da ram (salvas pelo inv_correlation_node.cpp)
+# handshake para importar as imagens
 
 
 class InverseTriangulationNode(Node):
     def __init__(self):
         super().__init__('inverse_triangulation_node')
-        self.get_logger().info('InverseTriangulationNode has been started.')
+        self.get_logger().info('InverseTriangulationNode.py has been started.')
 
         # Parameters declaration
-        self.declare_parameter('num_images', 10)
         self.declare_parameter('yaml_path', '~/ros2_ws/src/stereo_active/config/SM3.yaml')
         self.declare_parameter('tile', 2)
         self.declare_parameter('climp', 6.0)
@@ -39,201 +38,102 @@ class InverseTriangulationNode(Node):
         self.declare_parameter('radius', 15.0)
         self.declare_parameter('neighbours', 5)
         self.declare_parameter('crop_image_factor', 0.85)
-        self.declare_parameter('steps', 10)
-
-
         self.declare_parameter('save_filename', "correlation_points")
         self.declare_parameter('debug_save_points', False)
-
+        self.declare_parameter('n_images', 10)
         self.declare_parameter('camera_frame_id', 'SM3/left_camera_link')
-        self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
-        kernel = self.get_parameter('window_size').get_parameter_value().integer_value
+
         self.yaml_file = self.get_parameter('yaml_path').get_parameter_value().string_value
-        
+        self.num_images = self.get_parameter('n_images').get_parameter_value().integer_value
+        kernel = self.get_parameter('window_size').get_parameter_value().integer_value
         self.get_logger().info(f'Number of images to be captured: {self.num_images} with kernel {kernel}x{kernel}')
         
         # Initialize the InverseTriangulation class
         self.zscan = SpatialCorrelator(yaml_file=self.yaml_file)
-        self.bridge = CvBridge()
 
         self.left_images = []
         self.right_images = []
 
         # Initialize the subscribers
-        self.left_queue = []
-        self.right_queue = []
-
-        self.left_image_sub = self.create_subscription(Image, 'left/image', self.left_image_cb, 10)
-        self.right_image_sub = self.create_subscription(Image, 'right/image', self.right_image_cb, 10)
         self.passive_pcl_sub = self.create_subscription(PointCloud2, '/Passive/disparity/pointcloud', self.z_limits_global, 10)
+        self.handshake_images_sub = self.create_subscription(Int16, 'handshake_images', self.handshake_images_cb, 10)
         
         # Initialize the publisher
-        self.motor_angle_pub = self.create_publisher(Float32, 'motor/angle', 10)
         self.pcl_publisher = self.create_publisher(PointCloud2, 'pointcloud', 10)
 
-        # Create mutually exclusive callback groups
-        self.callback_group_srv = MutuallyExclusiveCallbackGroup()
-        self.callback_group_trigger_client = MutuallyExclusiveCallbackGroup()
-        self.callback_group_laser_client = MutuallyExclusiveCallbackGroup()
-
-        # Create the service from node
-        self.srv = self.create_service(SetBool, 'correlation_process', self.get_images_srv, callback_group=self.callback_group_srv)
-        self.gpio_client = self.create_client(Trigger, 'trigger', callback_group=self.callback_group_trigger_client)
-        self.laser_client = self.create_client(SetBool, 'laser', callback_group=self.callback_group_laser_client)
-        self.save_srv = self.create_service(Trigger, 'save', self.save_cb)
-
-        self.count = 1
         self.perform_correl = False
-        self.service_requet = False
 
         # Construct variables in case disparity point cloud is not available
         self.zmin = -300
         self.zmax = 1000
 
-        # Timer to perform the correlation process
-        self.timer_period = 1.0  # seconds
-        self.timer = self.create_timer(self.timer_period, self.timer_callback)
-
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-    def left_image_cb(self, msg):
-        
-        # timer do atraso da imagem
-        tempo_origem_ns = (msg.header.stamp.sec * 1_000_000_000) + msg.header.stamp.nanosec
-        tempo_chegada_ns = self.get_clock().now().nanoseconds
-        atraso = (tempo_chegada_ns - tempo_origem_ns ) / 1_000_000
-        self.get_logger().info(f'Atraso trafego foto: {atraso:.3f} ms')
+    def handshake_images_cb(self, msg):
+        #importa as mensagens da memoria ram
 
-        self.left_queue.append(msg)
-        self.match_images() 
+        #self.get_logger().info(f"Handshake do c++ concluido, num_images= {msg.data}")
+        self.num_images = abs(msg.data)         # verifica o sinal do numero de img recebido para definir se realiza a correlacao
+        self.perform_correl = msg.data > 0
+        base_path = '/dev/shm/stereo_active/'
 
-    def right_image_cb(self, msg):
-        self.right_queue.append(msg)
-        self.match_images() 
-    
-    def match_images(self):
-        if len(self.left_queue) > 0 and len(self.right_queue) > 0:
-            left_msg = self.left_queue.pop(0)
-            right_msg = self.right_queue.pop(0)
-            self.stereo_images_callback(left_msg, right_msg)
-            
+        self.left_images = []
+        self.right_images = []
+
+        for n in range(1, self.num_images + 1):
+            left_img_path = f"{base_path}/left/L{n:02d}.png"
+            right_img_path = f"{base_path}/right/R{n:02d}.png"
+
+            left_image = cv2.imread(left_img_path,cv2.IMREAD_GRAYSCALE)
+            right_image = cv2.imread(right_img_path,cv2.IMREAD_GRAYSCALE)
+
+            if left_image is None or right_image is None:
+                self.get_logger().error(f'Erro ao carregar a imagem {n}')
+                return
+
+            self.left_images.append(left_image)
+            self.right_images.append(right_image)
+
+        self.image_process()
         
-    def timer_callback(self):
+    def image_process(self):
         tile = self.get_parameter('tile').get_parameter_value().integer_value
         climp = self.get_parameter('climp').get_parameter_value().double_value
 
-        if self.perform_correl and self.num_images <= self.count:
+        if self.perform_correl:
             t0 = time.time()
             self.zscan.convert_images(left_imgs_cpu=self.left_images, right_imgs_cpu=self.right_images, apply_clahe=True, undist=True, tile=tile, climp=climp)
-            self.passive_pcl_sub = self.create_subscription(PointCloud2, '/Passive/disparity/pointcloud', self.z_limits_global, 10)
             self.get_logger().info('Images converted: {:.2f} s'.format(time.time()-t0))
             self.spatial_3d_correl_process()
             self.get_logger().info('Correlation process finished: {:.2f} s'.format(time.time()-t0))
             self.perform_correl = False
-    
-    def save_cb(self, request, response):
-        """
-        Service callback to view the images
-        """
-        if request:
-            self.get_logger().info('Saving images')
-            os.makedirs('left', exist_ok=True)
-            os.makedirs('right', exist_ok=True)
-            n = 1
-            for left, right in zip(self.left_images, self.right_images):
-                cv2.imwrite('left/L{:02d}.png'.format(n), left)
-                cv2.imwrite('right/R{:02d}.png'.format(n), right)
-                n += 1
-            if len(os.listdir('./left/')) == self.num_images:
-                response.success = True
-                response.message = 'Images saved successfully'
-                self.get_logger().info('Images saved')
-            else:
-                response.success = False
-                response.message = 'Images not saved'
-                self.get_logger().error('Images saved with some mistake')
-        return response
+            self.left_images.clear()
+            self.right_images.clear()
+            
+            
+            # --- Limpando a memoria
+            # 1. Cortamos as referências dos tensores dentro da classe PyTorch
+            self.zscan.left_images = None
+            self.zscan.right_images = None
+            self.zscan.grid = None
+            self.zscan.x_vals = None
+            self.zscan.y_vals = None
+            self.zscan.z_vals = None
 
-    def stereo_images_callback(self, left_image, right_image):
-        """
-        Callback function for the stereo images subscriber
-        """
-        if self.service_requet and self.count <= self.num_images:
-            self.count +=1
-        elif self.service_requet and self.count == self.num_images:
-            self.get_logger().info('Captured stereo images: {}/{}'.format(self.count, self.num_images))
-        else:
-            return
-
-
-        if left_image.encoding == 'bgr8' or right_image.encoding == 'bgr8':
-            left_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(left_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
-            right_image = cv2.cvtColor(self.bridge.imgmsg_to_cv2(right_image, desired_encoding='bgr8'), cv2.COLOR_BGR2GRAY)
-        else:
-            left_image = self.bridge.imgmsg_to_cv2(left_image, desired_encoding='mono8')
-            right_image = self.bridge.imgmsg_to_cv2(right_image, desired_encoding='mono8')
-    
-        self.left_images.append(left_image)
-        self.right_images.append(right_image)
-
-    def get_images_srv(self, request, response):
-        """
-        Service callback to get stereo images
-        """
-        self.num_images = self.get_parameter('num_images').get_parameter_value().integer_value
-        steps = self.get_parameter('steps').get_parameter_value().integer_value
-        self.service_requet = True
-
-        self.count = 1
-        self.left_images, self.right_images = [], []
-        float_msg = Float32()
-        float_msg.data = steps/2048*360  # Example value
-
-        # Call laser service
-        laser_request = SetBool.Request()
-        laser_request.data = True  # Turn on the laser
-        future_laser = self.laser_client.call_async(laser_request)
-        rclpy.spin_until_future_complete(self, future_laser)
-
-        # If laser service was successful, trigger the camera
-        if future_laser.result() is not None:
-            self.get_logger().info('Laser turned on')
-            for n in range(self.num_images):
-                self.motor_angle_pub.publish(float_msg)
-                trigger_request = Trigger.Request()
-                future = self.gpio_client.call_async(trigger_request)
-                rclpy.spin_until_future_complete(self, future)
-                if future.result() is not None:
-                    #self.get_logger().info(f'Image {n+1} captured')
-                    time.sleep(0.01) # exposition time of camera
-                else:
-                    self.get_logger().error('Service call failed')
-
-        # Call laser service to turn off
-        time.sleep(0.1)
-        laser_request = SetBool.Request()
-        laser_request.data = False  # Turn off the laser
-        future_laser = self.laser_client.call_async(laser_request)
-        rclpy.spin_until_future_complete(self, future_laser)
-        float_msg.data = -steps*(self.num_images)/2048*360  # Example value
-        self.motor_angle_pub.publish(float_msg)
-
-        if future_laser.result() is not None:
-            self.get_logger().info('Laser turned off')
-
-        rclpy.spin_until_future_complete(self, future_laser)
-        response.success = True
-        response.message = 'Images captured successfully'
-        self.perform_correl = request.data
-
-        return response
+            # 2. Forçamos o Python a reconhecer que os objetos estão órfãos
+            gc.collect()
+            
+            # 3. Agora sim, esvaziamos a VRAM da Jetson
+            torch.cuda.empty_cache()
+            self.get_logger().info('Memoria limpa')
+            # -------------------------------
+            
 
     def spatial_3d_correl_process(self):
         """
             Function to perform spatial correlation
         """
-
 
         # Get filter points parameters
         std_thresh = self.get_parameter('std_thresh').value
@@ -285,7 +185,7 @@ class InverseTriangulationNode(Node):
         self.zscan.points3d(x_lim=xlim, y_lim=ylim, z_lim=zlim, 
                             xy_step=GRID_STEPS_2['xy'], z_step=GRID_STEPS_2['z'])
                         
-        xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5, method='correl')
+        xyz_gpu, corr_gpu, _ = self.zscan.process_segmented_z(Kx=win_size, Ky=win_size, stride=stride, Nz_block_voxels=5, method='correl') 
 
         
         filter_mask = corr_gpu > correl_thresh
@@ -301,6 +201,8 @@ class InverseTriangulationNode(Node):
 
         if save_points:
             np.savetxt('{}_{}.txt'.format(time.strftime("%Y%m%d"), filename), xyz_filtered_gpu.cpu().numpy(), fmt='%.6f')
+        
+        del xyz_gpu, corr_gpu, xyz_filtered_gpu, corr_filtered_gpu, final_xyz_gpu # limpando memoria
             
     def z_limits_global(self, points):
         

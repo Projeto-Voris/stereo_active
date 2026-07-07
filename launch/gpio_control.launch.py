@@ -17,7 +17,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'step_delay',
-            default_value='10',
+            default_value='3500',
             description='Delay between steps in ms'
         ),
         DeclareLaunchArgument(  
@@ -37,14 +37,6 @@ def generate_launch_description():
             namespace=LaunchConfiguration('namespace'),
             name='gpio_control_node',
             output='screen',
-        ),
-
-        Node(
-            package='stereo_active',  # Replace with your package name
-            executable='motor_control',  # Replace with your executable name
-            namespace=LaunchConfiguration('namespace'),
-            name='motor_control_node',
-            output='screen',
             parameters=[
                 {'stepping_mode': LaunchConfiguration('stepping_mode')},
                 {'delay': LaunchConfiguration('step_delay')},
@@ -54,4 +46,5 @@ def generate_launch_description():
                 ('motor/angle', LaunchConfiguration('motor_angle_topic')),
             ]
         ),
+
     ])

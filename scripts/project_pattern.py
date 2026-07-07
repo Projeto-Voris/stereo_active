@@ -16,6 +16,7 @@ class ImageProjector(Node):
 
         # Carrega todas as imagens da pasta
         self.image_files = sorted(glob(os.path.join(image_path, '*.png')))
+        self.image = np.zeros((1080, 1920), dtype=np.uint8)
         if not self.image_files:
             self.get_logger().error(f'Nenhuma imagem encontrada em {image_path}')
             return
@@ -24,9 +25,10 @@ class ImageProjector(Node):
 
         # Serviço para mudar índice da imagem
         self.srv = self.create_service(Trigger, 'next_image', self.change_image_callback)
+        self.black_srv = self.create_service(Trigger, 'black_image', self.black_image_callback)
 
         # Nome da janela OpenCV
-        self.window_name = 'Image Projector'
+        self.window_name = 'projector'
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         cv2.setWindowProperty(self.window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
@@ -34,19 +36,26 @@ class ImageProjector(Node):
         self.timer = self.create_timer(0.1, self.timer_callback)  # Atualiza a tela a cada 100ms
 
     def timer_callback(self):
-        img = cv2.imread(self.image_files[self.index],0)
-        img_c = np.zeros((1080, 1920, 3), dtype=np.uint8)
-        img_c[:,:,0] = img[:1080,:]
-        if img is not None:
-            cv2.imshow(self.window_name, img_c)
-            cv2.waitKey(10)
+        img = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        img[:,:,0] = self.image[:1080,:]
+        cv2.imshow(self.window_name, img)
+        cv2.waitKey(10)
 
     def change_image_callback(self, request, response):
         # Incrementa índice e faz loop
         self.index = (self.index + 1) % len(self.image_files)
         self.get_logger().info(f'Mostrando imagem {self.index}: {self.image_files[self.index]}')
+        self.image = cv2.imread(self.image_files[self.index],0)
         response.success = True
         response.message = f'Imagem atual: {self.image_files[self.index]}'
+        return response
+    
+    def black_image_callback(self, request, response):
+        # Mostra imagem preta
+        self.image = np.zeros((1080, 1920), dtype=np.uint8)
+        self.get_logger().info('Alterando imagem para preto')
+        response.success = True
+        response.message = 'Imagem preta mostrada'
         return response
 
 
